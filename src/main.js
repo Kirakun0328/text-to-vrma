@@ -9,7 +9,6 @@ const statusEl = $('status');
 const textInput = $('textInput');
 const generateBtn = $('generateBtn');
 const exportBtn = $('exportBtn');
-const stopBtn = $('stopBtn');
 const apiKeyInput = $('apiKey');
 const modelSelect = $('modelSelect');
 const vrmBtn = $('vrmBtn');
@@ -116,7 +115,16 @@ function renderHistory() {
     save.title = '.vrma 保存';
     save.addEventListener('click', () => downloadVRMA(item));
 
-    row.append(play, name, meta, save);
+    const del = document.createElement('button');
+    del.textContent = '✕';
+    del.title = '履歴から削除';
+    del.addEventListener('click', () => {
+      const idx = history.indexOf(item);
+      if (idx !== -1) history.splice(idx, 1);
+      renderHistory();
+    });
+
+    row.append(play, name, meta, save, del);
     historyEl.appendChild(row);
   }
 }
@@ -176,12 +184,6 @@ exportBtn.addEventListener('click', () => {
   a.click();
   URL.revokeObjectURL(a.href);
   setStatus(`${lastVRMA.name}.vrma を保存しました。\nVRMA対応アプリ (VRoid Hub, cluster 等) で利用できます。`, 'ok');
-});
-
-// --- 停止 ---
-stopBtn.addEventListener('click', () => {
-  viewer.stop();
-  setStatus('停止しました。');
 });
 
 // --- VRMアップロード ---

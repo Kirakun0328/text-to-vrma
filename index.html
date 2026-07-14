@@ -48,7 +48,6 @@
     .row { display: flex; gap: 8px; }
     .row button { flex: 1; }
     #exportBtn { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
-    #stopBtn { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
     #status {
       font-size: 12.5px; line-height: 1.6; color: var(--muted);
       background: var(--panel2); border-radius: 8px; padding: 10px;
@@ -118,10 +117,7 @@
     <textarea id="textInput" placeholder="例: 忍者のように構えてから手裏剣を投げる&#10;例: 手を振ってからお辞儀する&#10;例: 大きくジャンプを3回"></textarea>
     <button id="generateBtn">▶ モーション生成 &amp; 再生</button>
 
-    <div class="row">
-      <button id="exportBtn" disabled>⬇ .vrma 保存</button>
-      <button id="stopBtn">■ 停止</button>
-    </div>
+    <button id="exportBtn" disabled>⬇ .vrma 保存</button>
 
     <div id="status">準備中...</div>
 

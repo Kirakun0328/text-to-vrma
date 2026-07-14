@@ -84,6 +84,13 @@ export class Viewer {
     this.vrm = vrm;
     this.mixer = new THREE.AnimationMixer(vrm.scene);
     this.scene.add(vrm.scene);
+
+    // モデルの身長に合わせてカメラをフレーミング
+    const bbox = new THREE.Box3().setFromObject(vrm.scene);
+    const height = Math.max(0.5, bbox.max.y - bbox.min.y);
+    this.controls.target.set(0, height * 0.55, 0);
+    this.camera.position.set(0, height * 0.65, height * 2.1);
+    this.controls.update();
     return vrm;
   }
 

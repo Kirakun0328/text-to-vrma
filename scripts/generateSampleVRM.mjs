@@ -18,72 +18,80 @@ for (const name of BONE_NAMES) {
   world[name] = [p[0] + t[0], p[1] + t[1], p[2] + t[2]];
 }
 
-// --- ジオメトリ構築 ---
+// --- ジオメトリ構築 (楕円体ベースのローポリ人間) ---
+const PRIM_NAMES = ['skin', 'hair', 'shirt', 'pants', 'dark'];
 const positions = [];
 const normals = [];
 const joints = [];
 const weights = [];
-const primIndices = { body: [], accent: [], dark: [] };
+const primIndices = Object.fromEntries(PRIM_NAMES.map((p) => [p, []]));
 let vertCount = 0;
 
 const boneIndex = Object.fromEntries(BONE_NAMES.map((n, i) => [n, i]));
 
-/** 中心 c・サイズ s の箱を bone にバインドして追加 */
-function box(prim, c, s, bone) {
-  const [cx, cy, cz] = c;
-  const [hx, hy, hz] = [s[0] / 2, s[1] / 2, s[2] / 2];
+/** 中心 c・半径 r=[rx,ry,rz] の楕円体を bone にバインドして追加 */
+function ellipsoid(prim, c, r, bone, latSeg = 10, lonSeg = 14) {
   const bi = boneIndex[bone];
-  // 面ごとに4頂点 (normal共有)
-  const faces = [
-    { n: [1, 0, 0],  v: [[+hx,-hy,-hz],[+hx,+hy,-hz],[+hx,+hy,+hz],[+hx,-hy,+hz]] },
-    { n: [-1, 0, 0], v: [[-hx,-hy,+hz],[-hx,+hy,+hz],[-hx,+hy,-hz],[-hx,-hy,-hz]] },
-    { n: [0, 1, 0],  v: [[-hx,+hy,-hz],[-hx,+hy,+hz],[+hx,+hy,+hz],[+hx,+hy,-hz]] },
-    { n: [0, -1, 0], v: [[-hx,-hy,+hz],[-hx,-hy,-hz],[+hx,-hy,-hz],[+hx,-hy,+hz]] },
-    { n: [0, 0, 1],  v: [[-hx,-hy,+hz],[+hx,-hy,+hz],[+hx,+hy,+hz],[-hx,+hy,+hz]] },
-    { n: [0, 0, -1], v: [[+hx,-hy,-hz],[-hx,-hy,-hz],[-hx,+hy,-hz],[+hx,+hy,-hz]] },
-  ];
-  for (const f of faces) {
-    const base = vertCount;
-    for (const [x, y, z] of f.v) {
-      positions.push(cx + x, cy + y, cz + z);
-      normals.push(...f.n);
+  const base = vertCount;
+  for (let i = 0; i <= latSeg; i++) {
+    const theta = (i / latSeg) * Math.PI;
+    const st = Math.sin(theta), ct = Math.cos(theta);
+    for (let j = 0; j <= lonSeg; j++) {
+      const phi = (j / lonSeg) * Math.PI * 2;
+      const dir = [st * Math.cos(phi), ct, st * Math.sin(phi)];
+      positions.push(c[0] + r[0] * dir[0], c[1] + r[1] * dir[1], c[2] + r[2] * dir[2]);
+      // 楕円体の正確な法線: 成分を半径の2乗で割って正規化
+      const nx = dir[0] / r[0], ny = dir[1] / r[1], nz = dir[2] / r[2];
+      const len = Math.hypot(nx, ny, nz);
+      normals.push(nx / len, ny / len, nz / len);
       joints.push(bi, 0, 0, 0);
       weights.push(1, 0, 0, 0);
       vertCount++;
     }
-    primIndices[prim].push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  for (let i = 0; i < latSeg; i++) {
+    for (let j = 0; j < lonSeg; j++) {
+      const a = base + i * (lonSeg + 1) + j;
+      const b = a + lonSeg + 1;
+      primIndices[prim].push(a, b, a + 1, a + 1, b, b + 1);
+    }
   }
 }
 
 const W = world;
-// 胴体まわり
-box('accent', [0, W.hips[1] + 0.02, 0],            [0.26, 0.16, 0.15], 'hips');
-box('body',   [0, W.spine[1] + 0.06, 0],           [0.23, 0.12, 0.13], 'spine');
-box('body',   [0, W.chest[1] + 0.06, 0],           [0.26, 0.13, 0.14], 'chest');
-box('body',   [0, W.upperChest[1] + 0.065, 0],     [0.30, 0.14, 0.16], 'upperChest');
-box('body',   [0, W.neck[1] + 0.04, 0],            [0.08, 0.09, 0.08], 'neck');
-box('body',   [0, W.head[1] + 0.12, 0],            [0.24, 0.26, 0.22], 'head');
-box('dark',   [0, W.head[1] + 0.14, 0.105],        [0.16, 0.07, 0.03], 'head');   // バイザー
-box('accent', [-0.045, W.head[1] + 0.14, 0.122],   [0.035, 0.035, 0.01], 'head'); // 右目
-box('accent', [0.045, W.head[1] + 0.14, 0.122],    [0.035, 0.035, 0.01], 'head'); // 左目
+// 胴体 (シャツ) と腰 (ズボン) — 重なりを大きくして継ぎ目を目立たなくする
+ellipsoid('pants', [0, W.hips[1] + 0.005, 0],       [0.135, 0.12, 0.095], 'hips');
+ellipsoid('shirt', [0, W.spine[1] + 0.05, 0],       [0.122, 0.115, 0.09], 'spine');
+ellipsoid('shirt', [0, W.chest[1] + 0.055, 0],      [0.13, 0.12, 0.094], 'chest');
+ellipsoid('shirt', [0, W.upperChest[1] + 0.05, 0],  [0.138, 0.115, 0.096], 'upperChest');
+// 首・頭 (肌)
+ellipsoid('skin', [0, W.neck[1] + 0.035, 0],        [0.042, 0.055, 0.042], 'neck');
+ellipsoid('skin', [0, W.head[1] + 0.12, 0],         [0.105, 0.118, 0.105], 'head');
+// 髪 (頭頂〜後頭部。下端が目の高さ (+0.125) より下に来ないようにする)
+ellipsoid('hair', [0, W.head[1] + 0.20, -0.02],     [0.112, 0.075, 0.105], 'head');
+ellipsoid('hair', [0, W.head[1] + 0.215, 0.045],    [0.095, 0.045, 0.075], 'head'); // 前髪
+// 顔パーツ
+ellipsoid('dark', [-0.042, W.head[1] + 0.125, 0.094], [0.013, 0.021, 0.009], 'head', 6, 8); // 右目
+ellipsoid('dark', [0.042, W.head[1] + 0.125, 0.094],  [0.013, 0.021, 0.009], 'head', 6, 8); // 左目
+ellipsoid('dark', [0, W.head[1] + 0.06, 0.097],       [0.014, 0.006, 0.005], 'head', 6, 8);  // 口
 
-// 腕 (左 +X / 右 -X 対称)
+// 腕 (左 +X / 右 -X): 上腕は袖 (シャツ)、前腕と手は肌
 for (const side of [1, -1]) {
   const L = side === 1 ? 'left' : 'right';
   const ua = W[`${L}UpperArm`], la = W[`${L}LowerArm`], hd = W[`${L}Hand`];
-  box('body',   [(ua[0] + la[0]) / 2, ua[1], 0], [0.22, 0.09, 0.09], `${L}UpperArm`);
-  box('body',   [(la[0] + hd[0]) / 2, la[1], 0], [0.20, 0.08, 0.08], `${L}LowerArm`);
-  box('accent', [hd[0] + side * 0.05, hd[1], 0], [0.10, 0.08, 0.06], `${L}Hand`);
-  box('accent', [ua[0] - side * 0.01, ua[1] + 0.03, 0], [0.13, 0.11, 0.12], `${L}Shoulder`);
+  ellipsoid('shirt', [ua[0] - side * 0.005, ua[1] + 0.02, 0], [0.065, 0.06, 0.06], `${L}Shoulder`); // 肩口
+  ellipsoid('shirt', [(ua[0] + la[0]) / 2, ua[1], 0], [0.135, 0.048, 0.048], `${L}UpperArm`);
+  ellipsoid('skin',  [(la[0] + hd[0]) / 2, la[1], 0], [0.125, 0.04, 0.04], `${L}LowerArm`);
+  ellipsoid('skin',  [hd[0] + side * 0.045, hd[1], 0], [0.055, 0.036, 0.026], `${L}Hand`);
 }
 
-// 脚
+// 脚 (ズボン) と靴
 for (const side of [1, -1]) {
   const L = side === 1 ? 'left' : 'right';
   const ul = W[`${L}UpperLeg`], ll = W[`${L}LowerLeg`], ft = W[`${L}Foot`];
-  box('body', [ul[0], (ul[1] + ll[1]) / 2, 0], [0.12, 0.36, 0.12], `${L}UpperLeg`);
-  box('body', [ll[0], (ll[1] + ft[1]) / 2, 0], [0.10, 0.38, 0.10], `${L}LowerLeg`);
-  box('dark', [ft[0], ft[1] - 0.035, 0.045],   [0.11, 0.08, 0.22], `${L}Foot`);
+  ellipsoid('pants', [ul[0], (ul[1] + ll[1]) / 2, 0], [0.068, 0.22, 0.068], `${L}UpperLeg`);
+  ellipsoid('pants', [ll[0], (ll[1] + ft[1]) / 2 + 0.02, 0], [0.058, 0.23, 0.058], `${L}LowerLeg`);
+  ellipsoid('dark',  [ft[0], ft[1] - 0.025, 0.05],   [0.058, 0.05, 0.125], `${L}Foot`);
 }
 
 // --- glTF 構築 ---
@@ -142,12 +150,14 @@ const jntAcc = addAccessor(new Uint8Array(joints), 5121, 'VEC4', ARRAY_BUFFER);
 const wgtAcc = addAccessor(new Float32Array(weights), 5126, 'VEC4', ARRAY_BUFFER);
 
 const materials = [
-  { name: 'body',   pbrMetallicRoughness: { baseColorFactor: [0.88, 0.90, 0.94, 1], metallicFactor: 0.1, roughnessFactor: 0.8 } },
-  { name: 'accent', pbrMetallicRoughness: { baseColorFactor: [0.36, 0.85, 0.55, 1], metallicFactor: 0.1, roughnessFactor: 0.6 } },
-  { name: 'dark',   pbrMetallicRoughness: { baseColorFactor: [0.13, 0.15, 0.20, 1], metallicFactor: 0.2, roughnessFactor: 0.5 } },
+  { name: 'skin',  pbrMetallicRoughness: { baseColorFactor: [0.96, 0.80, 0.69, 1], metallicFactor: 0, roughnessFactor: 0.9 } },
+  { name: 'hair',  pbrMetallicRoughness: { baseColorFactor: [0.32, 0.22, 0.16, 1], metallicFactor: 0, roughnessFactor: 0.85 } },
+  { name: 'shirt', pbrMetallicRoughness: { baseColorFactor: [0.32, 0.66, 0.55, 1], metallicFactor: 0, roughnessFactor: 0.9 } },
+  { name: 'pants', pbrMetallicRoughness: { baseColorFactor: [0.24, 0.28, 0.40, 1], metallicFactor: 0, roughnessFactor: 0.9 } },
+  { name: 'dark',  pbrMetallicRoughness: { baseColorFactor: [0.15, 0.12, 0.11, 1], metallicFactor: 0, roughnessFactor: 0.7 } },
 ];
 
-const primitives = ['body', 'accent', 'dark'].map((prim, mi) => ({
+const primitives = PRIM_NAMES.map((prim, mi) => ({
   attributes: { POSITION: posAcc, NORMAL: nrmAcc, JOINTS_0: jntAcc, WEIGHTS_0: wgtAcc },
   indices: addAccessor(new Uint16Array(primIndices[prim]), 5123, 'SCALAR', ELEMENT_ARRAY_BUFFER),
   material: mi,
