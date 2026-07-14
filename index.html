@@ -74,6 +74,22 @@
       background: rgba(76, 194, 255, 0.08); color: var(--accent2);
       font-size: 16px; pointer-events: none;
     }
+    #history { display: flex; flex-direction: column; gap: 6px; }
+    .hist-item {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 7px 10px; font-size: 12.5px;
+    }
+    .hist-item .name {
+      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--text);
+    }
+    .hist-item .meta { color: var(--muted); font-size: 11px; }
+    .hist-item button {
+      padding: 4px 9px; font-size: 12px; border-radius: 6px;
+      background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    }
+    .hist-item button.play { color: var(--accent); border-color: var(--accent); }
     #viewerWrap { flex: 1; position: relative; }
     canvas { display: block; width: 100%; height: 100%; }
     .section-title { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; }
@@ -89,7 +105,16 @@
     <input type="file" id="vrmFile" accept=".vrm" style="display:none" />
     <p class="sub" id="vrmName">読み込み中... — 3Dビューへのドラッグ&amp;ドロップでも読み込めます。</p>
 
-    <div class="section-title">2. モーションをテキストで指示</div>
+    <div class="section-title">2. 🤖 ChatGPT API 設定</div>
+    <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" />
+    <select id="modelSelect">
+      <option value="gpt-5.6-sol">gpt-5.6-sol (最高精度)</option>
+      <option value="gpt-5.6-terra">gpt-5.6-terra (バランス)</option>
+      <option value="gpt-5.6-luna">gpt-5.6-luna (低コスト)</option>
+    </select>
+    <p class="sub">APIキーはブラウザの localStorage にのみ保存され、OpenAI 以外には送信されません。</p>
+
+    <div class="section-title">3. モーションをテキストで指示</div>
     <textarea id="textInput" placeholder="例: 忍者のように構えてから手裏剣を投げる&#10;例: 手を振ってからお辞儀する&#10;例: 大きくジャンプを3回"></textarea>
     <button id="generateBtn">▶ モーション生成 &amp; 再生</button>
 
@@ -100,13 +125,8 @@
 
     <div id="status">準備中...</div>
 
-    <div class="section-title">🤖 ChatGPT API 設定</div>
-    <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" />
-    <select id="modelSelect">
-      <option value="gpt-5.6-terra">gpt-5.6-terra</option>
-      <option value="gpt-5.6">gpt-5.6</option>
-    </select>
-    <p class="sub">APIキーはブラウザの localStorage にのみ保存され、OpenAI 以外には送信されません。</p>
+    <div class="section-title">生成履歴</div>
+    <div id="history"><p class="sub">まだ生成したモーションはありません。</p></div>
   </div>
 
   <div id="viewerWrap">

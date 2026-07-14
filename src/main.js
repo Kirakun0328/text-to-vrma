@@ -16,8 +16,11 @@ const vrmBtn = $('vrmBtn');
 const vrmFile = $('vrmFile');
 const vrmName = $('vrmName');
 const viewerWrap = $('viewerWrap');
+const historyEl = $('history');
 
 let lastVRMA = null; // { buffer: ArrayBuffer, name: string }
+const history = []; // [{ name, buffer, loop, duration, text }]
+const MAX_HISTORY = 20;
 
 function setStatus(msg, kind = '') {
   statusEl.textContent = msg;
@@ -26,8 +29,8 @@ function setStatus(msg, kind = '') {
 
 // --- ビューア初期化 ---
 const viewer = new Viewer($('canvas'));
-// 手持ちモデル (未コミット) → 同梱サンプルの順に試す
-const DEFAULT_MODEL_URLS = ['/models/Zundamon.vrm', '/models/SampleBot.vrm'];
+// 起動時は同梱サンプルを読み込む (手持ちモデルは「VRMファイルを開く」で差し替え)
+const DEFAULT_MODEL_URLS = ['/models/SampleBot.vrm'];
 
 async function init() {
   setStatus('VRMモデルを読み込み中...');
@@ -58,6 +61,76 @@ async function playSpec(spec, { silent = false } = {}) {
       'ok'
     );
   }
+  return buffer;
+}
+
+// --- 生成履歴 ---
+function downloadVRMA(item) {
+  const blob = new Blob([item.buffer], { type: 'model/gltf-binary' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${item.name}.vrma`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function playHistoryItem(item) {
+  try {
+    await viewer.playVRMA(item.buffer.slice(0), item.loop);
+    lastVRMA = { buffer: item.buffer, name: item.name };
+    exportBtn.disabled = false;
+    setStatus(`再生中: ${item.name} (履歴)\n「${item.text}」`, 'ok');
+  } catch (e) {
+    console.error(e);
+    setStatus(`エラー: ${e.message}`, 'err');
+  }
+}
+
+function renderHistory() {
+  historyEl.innerHTML = '';
+  if (history.length === 0) {
+    historyEl.innerHTML = '<p class="sub">まだ生成したモーションはありません。</p>';
+    return;
+  }
+  for (const item of history) {
+    const row = document.createElement('div');
+    row.className = 'hist-item';
+
+    const play = document.createElement('button');
+    play.className = 'play';
+    play.textContent = '▶';
+    play.title = '再生';
+    play.addEventListener('click', () => playHistoryItem(item));
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = item.text || item.name;
+    name.title = `${item.name} — ${item.text}`;
+
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = `${item.duration.toFixed(1)}s`;
+
+    const save = document.createElement('button');
+    save.textContent = '⬇';
+    save.title = '.vrma 保存';
+    save.addEventListener('click', () => downloadVRMA(item));
+
+    row.append(play, name, meta, save);
+    historyEl.appendChild(row);
+  }
+}
+
+function addHistory(spec, buffer, text) {
+  history.unshift({
+    name: spec.name || 'motion',
+    buffer,
+    loop: spec.loop ?? true,
+    duration: spec.duration,
+    text,
+  });
+  if (history.length > MAX_HISTORY) history.pop();
+  renderHistory();
 }
 
 // --- 生成ボタン ---
@@ -83,7 +156,8 @@ generateBtn.addEventListener('click', async () => {
     localStorage.setItem('openai-model', model);
     setStatus(`ChatGPT (${model}) がモーションを生成中... (数十秒かかることがあります)`);
     const spec = await generateMotionWithChatGPT(text, apiKey, model);
-    await playSpec(spec);
+    const buffer = await playSpec(spec);
+    addHistory(spec, buffer, text);
   } catch (e) {
     console.error(e);
     setStatus(`エラー: ${e.message}`, 'err');

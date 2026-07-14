@@ -1,7 +1,7 @@
 // llm.js — OpenAI (ChatGPT) API で自由なテキストからモーション spec を生成する (オプション機能)
 import { BONE_NAMES } from './vrmaBuilder.js';
 
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-terra';
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
 const SYSTEM_PROMPT = `あなたはVRMヒューマノイドキャラクターのモーションデザイナーです。
 ユーザーのテキストから、キーフレームアニメーションのJSONを生成してください。
