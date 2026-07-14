@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Text to VRMA — テキストからモーション生成</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕺</text></svg>" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #12141a;
+      --panel: #1c1f28;
+      --panel2: #242836;
+      --border: #323848;
+      --text: #e8eaf0;
+      --muted: #9aa2b5;
+      --accent: #6ee7a0;
+      --accent2: #4cc2ff;
+    }
+    body {
+      font-family: "Hiragino Sans", "Yu Gothic UI", "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--text);
+      height: 100vh; display: flex; overflow: hidden;
+    }
+    #panel {
+      width: 340px; min-width: 340px; padding: 18px;
+      background: var(--panel); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+    }
+    h1 { font-size: 17px; letter-spacing: 0.02em; }
+    h1 span { color: var(--accent); }
+    .sub { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+    textarea {
+      width: 100%; height: 84px; resize: vertical;
+      background: var(--panel2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px; font-size: 14px; font-family: inherit;
+    }
+    textarea:focus { outline: 1px solid var(--accent2); }
+    button {
+      border: none; border-radius: 8px; padding: 10px 14px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      font-family: inherit; transition: filter 0.15s;
+    }
+    button:hover { filter: brightness(1.12); }
+    button:disabled { opacity: 0.45; cursor: default; }
+    #generateBtn { background: var(--accent); color: #10231a; }
+    .row { display: flex; gap: 8px; }
+    .row button { flex: 1; }
+    #exportBtn { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+    #stopBtn { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+    #status {
+      font-size: 12.5px; line-height: 1.6; color: var(--muted);
+      background: var(--panel2); border-radius: 8px; padding: 10px;
+      min-height: 58px; white-space: pre-wrap;
+    }
+    #status.ok { color: var(--accent); }
+    #status.err { color: #ff8484; }
+    input[type="password"], input[type="text"], select {
+      width: 100%; padding: 8px;
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: 12.5px;
+      font-family: inherit;
+    }
+    button.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); font-weight: 500; font-size: 13px; }
+    #viewerWrap.dragover::after {
+      content: 'VRMファイルをドロップして読み込み';
+      position: absolute; inset: 12px; display: flex;
+      align-items: center; justify-content: center;
+      border: 2px dashed var(--accent2); border-radius: 12px;
+      background: rgba(76, 194, 255, 0.08); color: var(--accent2);
+      font-size: 16px; pointer-events: none;
+    }
+    #viewerWrap { flex: 1; position: relative; }
+    canvas { display: block; width: 100%; height: 100%; }
+    .section-title { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <h1>Text <span>→</span> VRMA</h1>
+    <p class="sub">テキストからVRMアニメーション (.vrma) を生成して、その場でキャラクターを動かします。</p>
+
+    <textarea id="textInput" placeholder="例: 忍者のように構えてから手裏剣を投げる&#10;例: 手を振ってからお辞儀する&#10;例: 大きくジャンプを3回"></textarea>
+    <button id="generateBtn">▶ モーション生成 &amp; 再生</button>
+
+    <div class="row">
+      <button id="exportBtn" disabled>⬇ .vrma 保存</button>
+      <button id="stopBtn">■ 停止</button>
+    </div>
+
+    <div id="status">VRMモデルを読み込み中...</div>
+
+    <div class="section-title">🤖 ChatGPT API 設定</div>
+    <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" />
+    <select id="modelSelect">
+      <option value="gpt-5.6-terra">gpt-5.6-terra</option>
+      <option value="gpt-5.6">gpt-5.6</option>
+    </select>
+    <p class="sub">APIキーはブラウザの localStorage にのみ保存され、OpenAI 以外には送信されません。</p>
+
+    <div class="section-title">VRMモデル</div>
+    <button id="vrmBtn" class="secondary">📂 VRMファイルを開く</button>
+    <input type="file" id="vrmFile" accept=".vrm" style="display:none" />
+    <p class="sub" id="vrmName">Zundamon.vrm (デフォルト) — 3Dビューへのドラッグ&amp;ドロップでも読み込めます。</p>
+  </div>
+
+  <div id="viewerWrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

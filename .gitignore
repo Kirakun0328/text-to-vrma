@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.local
+
+# VRMモデルは再配布規約があるためコミットしない
+public/models/*.vrm
+
+# エディタ / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
