@@ -175,6 +175,13 @@ generateBtn.addEventListener('click', async () => {
     });
     const buffer = await playSpec(spec);
     addHistory(spec, buffer, text);
+    if (spec.flavor) {
+      setStatus(
+        `再生中: ${spec.name}\n長さ: ${spec.duration.toFixed(1)}秒 / ループ: ${spec.loop ? 'あり' : 'なし'}\n` +
+        `演出: ${spec.flavor}`,
+        'ok'
+      );
+    }
   } catch (e) {
     console.error(e);
     setStatus(`エラー: ${e.message}`, 'err');

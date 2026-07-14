@@ -180,7 +180,11 @@ export async function generateMotionWithOpenAI(
   model = DEFAULT_OPENAI_MODEL,
   { refine = true, onProgress } = {}
 ) {
-  const userMsg = `次の動きのモーションを作成: ${text}`;
+  // 演出の味付けをランダムに混ぜて、同じ指示でも毎回違う振り付けを引き出す
+  const flavor = randomFlavor();
+  const userMsg =
+    `次の動きのモーションを作成: ${text}\n` +
+    `(今回の演出の味付け: ${flavor}。ただしユーザーの指示と矛盾する場合は指示を優先)`;
 
   // 1パス目: 生成
   const draft = await callOpenAI(
@@ -217,10 +221,29 @@ export async function generateMotionWithOpenAI(
   }
 
   if (!spec.hips?.length) delete spec.hips;
+  spec.flavor = flavor; // 表示用 (buildVRMA では無視される)
   return spec;
 }
 
 const MAX_DURATION = 20; // 秒
+
+// 毎回ランダムに混ぜる「演出の味付け」— 同じ指示でも違う振り付けを引き出す
+const FLAVOR_AXES = [
+  ['エネルギッシュに', 'しっとり落ち着いて', 'コミカルに', 'クールに', '照れくさそうに', '堂々と', '優雅に', '無邪気に'],
+  ['速いテンポで小気味よく', 'ゆったり大きく動く', '緩急を強くつける', '一定のリズムで繰り返す'],
+  ['腕の動きを主役に', '腰と重心の移動を主役に', '頭と上半身の表情を主役に', '全身をまんべんなく使って', '脚のステップを主役に'],
+  ['左右非対称の振り付けで', '途中に一度タメ(静止)を入れて', '最後に決めポーズで締めて', '回転やターンを織り交ぜて', '上下動を強調して'],
+];
+
+function randomFlavor() {
+  // 4軸から2〜3個をランダムに選ぶ
+  const shuffled = [...FLAVOR_AXES].sort(() => Math.random() - 0.5);
+  const count = 2 + Math.floor(Math.random() * 2);
+  return shuffled
+    .slice(0, count)
+    .map((axis) => axis[Math.floor(Math.random() * axis.length)])
+    .join('、');
+}
 
 function validateSpec(spec) {
   if (typeof spec.duration !== 'number' || spec.duration <= 0) {
