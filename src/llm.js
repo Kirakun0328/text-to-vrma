@@ -125,8 +125,7 @@ export const REFINE_INSTRUCTION = `以下は上記の指示で生成されたモ
 // ボーン別の安全な角度上限 (度)。LLM出力の暴れをクランプする
 const ANGLE_LIMITS = {
   leftHand: 25, rightHand: 25,
-  leftShoulder: 8, rightShoulder: 8,
-  leftUpperArm: 100, rightUpperArm: 100,
+  leftUpperArm: 90, rightUpperArm: 90,
   neck: 45, head: 70,
   spine: 45, chest: 45, upperChest: 45,
   leftFoot: 60, rightFoot: 60,
@@ -228,6 +227,11 @@ function validateSpec(spec) {
   // 不明なボーンや壊れたキーは除去して続行
   for (const [bone, keys] of Object.entries(spec.tracks)) {
     if (!BONE_NAMES.includes(bone) || !Array.isArray(keys)) {
+      delete spec.tracks[bone];
+      continue;
+    }
+    // 肩はビルダーの自動追従に任せる (LLM の肩回転は服を歪めやすい)
+    if (bone === 'leftShoulder' || bone === 'rightShoulder') {
       delete spec.tracks[bone];
       continue;
     }

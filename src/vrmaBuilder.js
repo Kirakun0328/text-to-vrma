@@ -93,6 +93,21 @@ export function buildVRMA(spec) {
   // (指ボーンを持たないモデルではリターゲット時に無視される)
   const tracks = { ...(spec.tracks ?? {}) };
   const dur = spec.duration ?? 1;
+
+  // 肩の自動追従: 腕を高く上げたとき鎖骨を少し持ち上げ、肩付け根のメッシュ潰れを軽減する
+  // (左の腕上げ = upperArm Z 正 / 右 = 負。下げた腕では発動しない)
+  for (const side of ['left', 'right']) {
+    const shoulderBone = `${side}Shoulder`;
+    const ua = tracks[`${side}UpperArm`];
+    if (!ua?.length || tracks[shoulderBone]) continue;
+    const raiseSign = side === 'left' ? 1 : -1;
+    const keys = ua.map((k) => {
+      const raise = Math.max(0, raiseSign * k.r[2] - 55); // 55度を超えた持ち上げ量
+      const lift = Math.min(14, raise * 0.4);
+      return { t: k.t, r: [0, 0, raiseSign * lift] };
+    });
+    if (keys.some((k) => k.r[2] !== 0)) tracks[shoulderBone] = keys;
+  }
   for (const side of ['left', 'right']) {
     const sign = side === 'left' ? -1 : 1;
     for (const finger of ['Index', 'Middle', 'Ring', 'Little']) {
