@@ -110,7 +110,11 @@ function compareVersions(version, minimum = MIN_CODEX_VERSION) {
 function friendlyError(error) {
   const message = error?.message || String(error);
   if (error?.code === 'ENOENT' || /not recognized|not found|見つかりません/i.test(message)) {
-    return new Error('Codex CLI が見つかりません。Codex CLI をインストールし、PATH を設定してください。');
+    return new Error(
+      'Codex CLI が見つかりません。Codexモードを使うには Codex CLI (0.144.1以上) を' +
+      'インストールし、PATH を設定してください。\n' +
+      'インストールせずに使う場合は、認証方式を「OpenAI APIキー」に切り替えてください。'
+    );
   }
   if (/usage.?limit|rate.?limit|quota|sessionBudgetExceeded/i.test(message)) {
     return new Error('Codex の利用上限に達しました。時間をおいてから再試行してください。');
@@ -319,7 +323,15 @@ class CodexClient extends EventEmitter {
         windowsHide: true,
         timeout: 10_000,
       }, (error, stdout) => {
-        if (error) return reject(friendlyError(error));
+        if (error) {
+          // Windows では「コマンドが見つからない」エラーが Shift-JIS で返り
+          // 文字化けするため、--version の失敗は一律「未インストール」として扱う
+          return reject(new Error(
+            'Codex CLI が見つかりません。Codexモードを使うには Codex CLI (0.144.1以上) を' +
+            'インストールし、PATH を設定してください。\n' +
+            'インストール不要で使う場合は認証方式を「OpenAI APIキー」に切り替えてください。'
+          ));
+        }
         const match = String(stdout).match(/(\d+\.\d+\.\d+)/);
         if (!match) return reject(new Error('Codex CLI のバージョンを確認できませんでした。'));
         resolve(match[1]);
