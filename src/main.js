@@ -134,6 +134,14 @@ function renderHistory() {
     save.title = '.vrma 保存';
     save.addEventListener('click', () => downloadVRMA(item));
 
+    const copy = document.createElement('button');
+    copy.textContent = '📋';
+    copy.title = 'モーションJSONをコピー (不具合報告・調整用)';
+    copy.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(JSON.stringify(item.spec, null, 1));
+      setStatus('モーションJSONをクリップボードにコピーしました。', 'ok');
+    });
+
     const del = document.createElement('button');
     del.textContent = '✕';
     del.title = '履歴から削除';
@@ -143,7 +151,7 @@ function renderHistory() {
       renderHistory();
     });
 
-    row.append(play, name, meta, save, del);
+    row.append(play, name, meta, save, copy, del);
     historyEl.appendChild(row);
   }
 }
@@ -188,6 +196,8 @@ generateBtn.addEventListener('click', async () => {
       refine: refineCheck.checked,
       onProgress: (msg) => setStatus(msg),
     });
+    window.__lastSpec = spec; // 診断用
+    console.log('[Text-To-VRMA] generated spec:', spec);
     const buffer = await playSpec(spec);
     addHistory(spec, buffer, text);
     if (spec.flavor) {
