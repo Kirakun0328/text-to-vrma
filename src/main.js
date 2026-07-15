@@ -9,6 +9,7 @@ const statusEl = $('status');
 const textInput = $('textInput');
 const generateBtn = $('generateBtn');
 const exportBtn = $('exportBtn');
+const exprCheck = $('exprCheck');
 const apiKeyInput = $('apiKey');
 const modelSelect = $('modelSelect');
 const refineCheck = $('refineCheck');
@@ -22,8 +23,10 @@ let lastVRMA = null; // { spec, name }
 const history = []; // [{ name, spec, buffer, loop, duration, text }]
 const MAX_HISTORY = 20;
 
-// エクスポート用: 表情を除いたボーンモーションのみの VRMA を生成する
-function buildMotionOnlyVRMA(spec) {
+// エクスポート用 VRMA を生成する (表情の有無はチェックボックスで選択)
+function buildExportVRMA(spec) {
+  localStorage.setItem('export-expressions', exprCheck.checked ? '1' : '0');
+  if (exprCheck.checked) return buildVRMA(spec);
   const { expressions, ...motionOnly } = spec;
   return buildVRMA(motionOnly);
 }
@@ -80,8 +83,7 @@ async function playSpec(spec, { silent = false } = {}) {
 
 // --- 生成履歴 ---
 function downloadVRMA(item) {
-  // 書き出しはボーンモーションのみ (表情はプレビュー演出)
-  const buffer = buildMotionOnlyVRMA(item.spec);
+  const buffer = buildExportVRMA(item.spec);
   const blob = new Blob([buffer], { type: 'model/gltf-binary' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -203,17 +205,18 @@ generateBtn.addEventListener('click', async () => {
   }
 });
 
-// --- エクスポート (ボーンモーションのみ) ---
+// --- エクスポート ---
 exportBtn.addEventListener('click', () => {
   if (!lastVRMA) return;
-  const buffer = buildMotionOnlyVRMA(lastVRMA.spec);
+  const buffer = buildExportVRMA(lastVRMA.spec);
   const blob = new Blob([buffer], { type: 'model/gltf-binary' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${lastVRMA.name}.vrma`;
   a.click();
   URL.revokeObjectURL(a.href);
-  setStatus(`${lastVRMA.name}.vrma を保存しました (ボーンモーションのみ)。\nVRMA対応アプリ (VRoid Hub, cluster 等) で利用できます。`, 'ok');
+  const exprNote = exprCheck.checked ? '表情トラック込み' : 'ボーンモーションのみ';
+  setStatus(`${lastVRMA.name}.vrma を保存しました (${exprNote})。\nVRMA対応アプリ (VRoid Hub, cluster 等) で利用できます。`, 'ok');
 });
 
 // --- VRMアップロード ---
@@ -258,6 +261,7 @@ viewerWrap.addEventListener('drop', (e) => {
 // --- 設定復元 / Ctrl+Enterで生成 ---
 apiKeyInput.value = localStorage.getItem('openai-api-key') ?? '';
 refineCheck.checked = localStorage.getItem('refine-enabled') !== '0';
+exprCheck.checked = localStorage.getItem('export-expressions') !== '0';
 const savedModel = localStorage.getItem('openai-model');
 if (savedModel && [...modelSelect.options].some((o) => o.value === savedModel)) {
   modelSelect.value = savedModel;
