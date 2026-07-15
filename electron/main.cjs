@@ -1,8 +1,9 @@
 // Electron メインプロセス — dist/ のビルド成果物を app:// スキームで配信する
 // APIキー等の秘密情報は一切埋め込まない (利用者が実行時に入力し、各自のPC内にのみ保存される)
-const { app, BrowserWindow, Menu, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, Menu, protocol, net, shell, ipcMain, dialog } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { CodexClient, friendlyError } = require('./codex-client.cjs');
 
 // file:// では fetch が使えないため、標準スキーム扱いの app:// で配信する
 protocol.registerSchemesAsPrivileged([
@@ -13,6 +14,51 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const DIST_DIR = path.join(__dirname, '..', 'dist');
+let codexClient;
+
+function broadcastCodexStatus(status) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('codex:account-changed', status);
+  }
+}
+
+function registerCodexIpc() {
+  codexClient = new CodexClient({ cwd: app.getPath('temp') });
+  codexClient.on('account-changed', async () => {
+    broadcastCodexStatus(await codexClient.getStatus());
+  });
+  codexClient.on('server-exit', broadcastCodexStatus);
+
+  ipcMain.handle('codex:get-status', () => codexClient.getStatus());
+  ipcMain.handle('codex:list-models', () => codexClient.listModels());
+  ipcMain.handle('codex:generate-motion', async (_event, request) => {
+    try {
+      return await codexClient.generateMotion(request);
+    } catch (error) {
+      throw friendlyError(error);
+    }
+  });
+  ipcMain.handle('codex:login', async () => {
+    const result = await codexClient.login();
+    if (result.type !== 'chatgpt' || !result.authUrl) {
+      throw new Error('Codex からログインURLが返されませんでした。');
+    }
+    await shell.openExternal(result.authUrl);
+    return { loginId: result.loginId };
+  });
+  ipcMain.handle('codex:logout', async () => {
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      buttons: ['キャンセル', 'ログアウト'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Codexからログアウト',
+      message: 'このPCのCodex CLI全体からログアウトします。続行しますか？',
+    });
+    if (response !== 1) return codexClient.getStatus();
+    return codexClient.logout();
+  });
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -24,6 +70,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -37,6 +84,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerCodexIpc();
   protocol.handle('app', (request) => {
     const { pathname } = new URL(request.url);
     const rel = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
@@ -57,5 +105,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  codexClient?.close();
   if (process.platform !== 'darwin') app.quit();
 });

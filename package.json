@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "node --test test/*.test.cjs",
     "preview": "vite preview",
     "app:dev": "electron .",
     "app:build": "vite build && electron-builder --win portable"

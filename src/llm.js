@@ -320,6 +320,44 @@ export async function generateMotionWithOpenAI(
   return spec;
 }
 
+/**
+ * Electron の Codex CLI (ChatGPT/Codex サブスクリプション) でモーション spec を生成する。
+ * 認証情報は preload の限定 IPC 内に留まり、レンダラーには渡されない。
+ */
+export async function generateMotionWithCodex(
+  text,
+  model,
+  { refine = true, onProgress } = {}
+) {
+  if (!window.codexBridge) {
+    throw new Error('Codex認証はデスクトップ版でのみ利用できます。');
+  }
+
+  const flavor = randomFlavor();
+  const userMsg =
+    `次の動きのモーションを作成: ${text}\n` +
+    `(今回の演出の味付け: ${flavor}。ただしユーザーの指示と矛盾する場合は指示を優先)`;
+
+  onProgress?.(
+    refine
+      ? `Codex (${model}) がモーションを生成・自己修正中...`
+      : `Codex (${model}) がモーションを生成中...`
+  );
+  const spec = await window.codexBridge.generateMotion({
+    model,
+    systemPrompt: SYSTEM_PROMPT,
+    prompt: userMsg,
+    refinePrompt: REFINE_INSTRUCTION,
+    refine,
+  });
+
+  validateSpec(spec);
+  if (!spec.hips?.length) delete spec.hips;
+  if (WAVE_RE.test(text)) applyWaveCorrection(spec);
+  spec.flavor = flavor;
+  return spec;
+}
+
 const MAX_DURATION = 20; // 秒
 
 // 毎回ランダムに混ぜる「演出の味付け」— 同じ指示でも違う振り付けを引き出す

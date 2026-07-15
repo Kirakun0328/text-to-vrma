@@ -2,7 +2,11 @@
 import { Viewer } from './viewer.js';
 import { buildVRMA } from './vrmaBuilder.js';
 import { idleSpec } from './idleMotion.js';
-import { generateMotionWithOpenAI, DEFAULT_OPENAI_MODEL } from './llm.js';
+import {
+  generateMotionWithOpenAI,
+  generateMotionWithCodex,
+  DEFAULT_OPENAI_MODEL,
+} from './llm.js';
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
@@ -11,7 +15,14 @@ const generateBtn = $('generateBtn');
 const exportBtn = $('exportBtn');
 const exprCheck = $('exprCheck');
 const apiKeyInput = $('apiKey');
-const modelSelect = $('modelSelect');
+const authModeSelect = $('authMode');
+const apiSettings = $('apiSettings');
+const codexSettings = $('codexSettings');
+const apiModelSelect = $('apiModelSelect');
+const codexModelSelect = $('codexModelSelect');
+const codexAuthState = $('codexAuthState');
+const codexLoginBtn = $('codexLoginBtn');
+const codexLogoutBtn = $('codexLogoutBtn');
 const refineCheck = $('refineCheck');
 const vrmBtn = $('vrmBtn');
 const vrmFile = $('vrmFile');
@@ -22,6 +33,78 @@ const historyEl = $('history');
 let lastVRMA = null; // { spec, name }
 const history = []; // [{ name, spec, buffer, loop, duration, text }]
 const MAX_HISTORY = 20;
+const codexBridge = window.codexBridge;
+let codexStatus = null;
+
+function setCodexAuthState(message, kind = '') {
+  codexAuthState.textContent = message;
+  codexAuthState.className = `auth-state${kind ? ` ${kind}` : ''}`;
+}
+
+function renderAuthMode() {
+  const codexMode = authModeSelect.value === 'codex' && Boolean(codexBridge);
+  apiSettings.classList.toggle('hidden', codexMode);
+  codexSettings.classList.toggle('hidden', !codexMode);
+}
+
+async function loadCodexModels() {
+  const models = await codexBridge.listModels();
+  codexModelSelect.replaceChildren();
+  for (const model of models) {
+    const option = document.createElement('option');
+    option.value = model.model;
+    option.textContent = `${model.displayName}${model.isDefault ? ' (推奨)' : ''}`;
+    option.title = model.description;
+    codexModelSelect.appendChild(option);
+  }
+  const saved = localStorage.getItem('codex-model');
+  const savedOption = [...codexModelSelect.options].find((option) => option.value === saved);
+  const defaultModel = models.find((model) => model.isDefault)?.model;
+  codexModelSelect.value = savedOption?.value || defaultModel || models[0]?.model || '';
+  codexModelSelect.disabled = models.length === 0;
+}
+
+async function refreshCodexStatus(providedStatus) {
+  if (!codexBridge) return;
+  try {
+    codexStatus = providedStatus || await codexBridge.getStatus();
+    const account = codexStatus.account;
+    if (!codexStatus.available) {
+      setCodexAuthState(codexStatus.error || 'Codex CLIを利用できません。', 'err');
+    } else if (account?.type === 'chatgpt') {
+      const identity = account.email || 'ChatGPTアカウント';
+      setCodexAuthState(
+        `ログイン済み: ${identity}\nプラン: ${account.planType} / CLI: ${codexStatus.version}`,
+        'ok'
+      );
+      await loadCodexModels();
+    } else {
+      setCodexAuthState(`未ログイン / Codex CLI ${codexStatus.version}`);
+      codexModelSelect.disabled = true;
+    }
+    codexLoginBtn.disabled = !codexStatus.available || account?.type === 'chatgpt';
+    codexLogoutBtn.disabled = account?.type !== 'chatgpt';
+  } catch (error) {
+    codexStatus = { available: false, account: null };
+    setCodexAuthState(error.message, 'err');
+    codexLoginBtn.disabled = true;
+    codexLogoutBtn.disabled = true;
+  }
+}
+
+async function initializeAuth() {
+  if (!codexBridge) {
+    authModeSelect.querySelector('option[value="codex"]')?.remove();
+    authModeSelect.value = 'api-key';
+    renderAuthMode();
+    return;
+  }
+  authModeSelect.value = localStorage.getItem('openai-auth-mode') === 'codex'
+    ? 'codex'
+    : 'api-key';
+  renderAuthMode();
+  await refreshCodexStatus();
+}
 
 // エクスポート用 VRMA を生成する (表情の有無はチェックボックスで選択)
 function buildExportVRMA(spec) {
@@ -176,9 +259,14 @@ generateBtn.addEventListener('click', async () => {
     setStatus('テキストを入力してください。', 'err');
     return;
   }
+  const authMode = authModeSelect.value;
   const apiKey = apiKeyInput.value.trim();
-  if (!apiKey) {
+  if (authMode === 'api-key' && !apiKey) {
     setStatus('OpenAI APIキーを入力してください。', 'err');
+    return;
+  }
+  if (authMode === 'codex' && codexStatus?.account?.type !== 'chatgpt') {
+    setStatus('先に「ChatGPTでログイン」からCodexを認証してください。', 'err');
     return;
   }
   if (!viewer.vrm) {
@@ -187,15 +275,24 @@ generateBtn.addEventListener('click', async () => {
   }
   generateBtn.disabled = true;
   try {
-    localStorage.setItem('openai-api-key', apiKey);
-    const model = modelSelect.value;
-    localStorage.setItem('openai-model', model);
+    const model = authMode === 'codex' ? codexModelSelect.value : apiModelSelect.value;
+    if (!model) throw new Error('利用可能なモデルがありません。');
+    localStorage.setItem('openai-auth-mode', authMode);
+    if (authMode === 'api-key') {
+      localStorage.setItem('openai-api-key', apiKey);
+      localStorage.setItem('openai-model', model);
+    } else {
+      localStorage.setItem('codex-model', model);
+    }
     localStorage.setItem('refine-enabled', refineCheck.checked ? '1' : '0');
-    setStatus(`OpenAI (${model}) がモーションを生成中... (数十秒かかることがあります)`);
-    const spec = await generateMotionWithOpenAI(text, apiKey, model, {
+    setStatus(`${authMode === 'codex' ? 'Codex' : 'OpenAI'} (${model}) がモーションを生成中...`);
+    const options = {
       refine: refineCheck.checked,
       onProgress: (msg) => setStatus(msg),
-    });
+    };
+    const spec = authMode === 'codex'
+      ? await generateMotionWithCodex(text, model, options)
+      : await generateMotionWithOpenAI(text, apiKey, model, options);
     window.__lastSpec = spec; // 診断用
     console.log('[Text-To-VRMA] generated spec:', spec);
     const buffer = await playSpec(spec);
@@ -273,13 +370,41 @@ apiKeyInput.value = localStorage.getItem('openai-api-key') ?? '';
 refineCheck.checked = localStorage.getItem('refine-enabled') !== '0';
 exprCheck.checked = localStorage.getItem('export-expressions') !== '0';
 const savedModel = localStorage.getItem('openai-model');
-if (savedModel && [...modelSelect.options].some((o) => o.value === savedModel)) {
-  modelSelect.value = savedModel;
+if (savedModel && [...apiModelSelect.options].some((o) => o.value === savedModel)) {
+  apiModelSelect.value = savedModel;
 } else {
-  modelSelect.value = DEFAULT_OPENAI_MODEL;
+  apiModelSelect.value = DEFAULT_OPENAI_MODEL;
 }
+authModeSelect.addEventListener('change', () => {
+  localStorage.setItem('openai-auth-mode', authModeSelect.value);
+  renderAuthMode();
+  if (authModeSelect.value === 'codex') refreshCodexStatus();
+});
+codexModelSelect.addEventListener('change', () => {
+  localStorage.setItem('codex-model', codexModelSelect.value);
+});
+codexLoginBtn.addEventListener('click', async () => {
+  codexLoginBtn.disabled = true;
+  try {
+    await codexBridge.login();
+    setCodexAuthState('ブラウザでChatGPTへのログインを完了してください...');
+  } catch (error) {
+    setCodexAuthState(error.message, 'err');
+    await refreshCodexStatus();
+  }
+});
+codexLogoutBtn.addEventListener('click', async () => {
+  codexLogoutBtn.disabled = true;
+  try {
+    await refreshCodexStatus(await codexBridge.logout());
+  } catch (error) {
+    setCodexAuthState(error.message, 'err');
+  }
+});
+codexBridge?.onAccountChanged((status) => refreshCodexStatus(status));
 textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateBtn.click();
 });
 
+initializeAuth();
 init();

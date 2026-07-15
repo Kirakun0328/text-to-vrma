@@ -2,7 +2,7 @@
 
 ![デモ: テキストからモーション生成](video/demo.gif)
 
-テキストを入力すると、OpenAI API がキーフレームを設計し、
+テキストを入力すると、OpenAI API または Codex サブスクリプションがキーフレームを設計し、
 **VRMA (VRM Animation / `.vrma`)** ファイルをブラウザ内で生成して、
 その場で VRM キャラクターを動かす Web アプリです。
 生成した `.vrma` はファイルとして保存でき、VRMA 対応アプリでそのまま利用できます。
@@ -15,7 +15,12 @@
 ## 必要なもの
 
 - Node.js 20+
-- OpenAI API キー ([platform.openai.com](https://platform.openai.com/) で取得)
+- 次のいずれか
+  - OpenAI API キー ([platform.openai.com](https://platform.openai.com/) で取得)
+  - デスクトップ版では、PATH 上の Codex CLI 0.144.1 以上と利用可能なChatGPT/Codexプラン
+
+Codexサブスクリプション認証はElectronデスクトップ版専用です。ブラウザ版ではAPIキーを使用してください。
+Codex CLIはアプリに同梱されないため、別途インストールが必要です。
 
 VRM モデルは [VRoid 公式サンプルモデル (AvatarSample)](https://hub.vroid.com/characters/2843975675147313744/models/5644550979324015604)
 の VRM1.0 版・VRM0.0 版を同梱しており、起動時に VRM1.0 版が読み込まれます。
@@ -37,8 +42,12 @@ npm run dev
 
 1. 起動するとサンプルモデル (AvatarSample VRM1.0版) が読み込まれます。
    「VRMファイルを開く」または 3D ビューへのドラッグ&ドロップで手持ちの VRM に差し替え可能
-2. OpenAI API キーを入力し、モデル (gpt-5.6 系) を選択
-   - キーはブラウザの localStorage にのみ保存され、OpenAI 以外には送信されません
+2. 認証方式とモデルを選択
+   - **OpenAI APIキー**: キーを入力し、API用モデルを選択します。キーはブラウザの
+     localStorage にのみ保存され、OpenAI 以外には送信されません
+   - **Codexサブスクリプション（デスクトップ版）**: 「ChatGPTでログイン」を押して
+     既定ブラウザで認証します。既にCodex CLIでログイン済みなら、その認証を再利用します
+   - CodexのトークンはCodex CLIが管理し、アプリのレンダラーやlocalStorageには保存されません
 3. テキストを入力して「▶ モーション生成 & 再生」 (Ctrl+Enter でも可)
    - 「🔍 自己修正」ON (デフォルト) では生成後にもう1パス、可動域・軌道・緩急の
      セルフレビューを行い品質を上げます (API呼び出しが2回になります)
@@ -47,7 +56,7 @@ npm run dev
 ## アーキテクチャ
 
 ```text
-テキスト ── OpenAI API ──▶ モーション spec (ボーン別オイラー角キーフレーム JSON)
+テキスト ── OpenAI API / Codex CLI ──▶ モーション spec (ボーン別オイラー角キーフレーム JSON)
                                    │
                                    ▼
               vrmaBuilder.js ── glTF + VRMC_vrm_animation 拡張 → GLB (.vrma)
@@ -63,6 +72,8 @@ npm run dev
 | `src/viewer.js` | three.js シーン / VRM ロード / VRMA 再生 |
 | `src/idleMotion.js` | 待機モーション (呼吸) |
 | `src/main.js` | UI 結線 |
+| `electron/codex-client.cjs` | Codex app-server接続 / ChatGPT認証 / モデル取得 / 一時スレッドでの生成 |
+| `electron/preload.cjs` | 認証情報を公開しない限定IPCブリッジ |
 
 ## モーション spec フォーマット
 
@@ -93,12 +104,14 @@ LLM が生成する中間表現です:
 
 - **動作確認環境: Windows 11** (macOS / Linux では動作未確認です。
   ブラウザで動く Web アプリのため動作する見込みはありますが、保証はありません)
-- モーション生成には OpenAI API の利用料が発生します (1回あたり数円〜十数円程度。
+- APIキーモードのモーション生成には OpenAI API の利用料が発生します (1回あたり数円〜十数円程度。
   使用モデルとモーションの長さによって変動)
 - OpenAI の [データ共有プログラム (Complimentary daily tokens)](https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai)
   を有効にすると、1日あたりの無料トークン枠内で**無料で試せます**
   (API の入出力が OpenAI のモデル学習に共有される点に注意。対象アカウント・地域の条件あり。
   本プログラムは OpenAI 側の都合で変更・終了される可能性があります)
+- Codexモードはログイン中のChatGPT/Codexプランの利用上限と組織ポリシーに従います
+- アプリ内のCodexログアウトは、このPC上のCodex CLI全体のログイン状態へ影響します
 - 生成される `.vrma` の利用は各自の責任で行ってください
 - **免責事項**: 本ツールは現状のまま・無保証で提供されます。本ツールの利用
   または利用不能により生じたいかなる損害 (API 利用料、データの損失、

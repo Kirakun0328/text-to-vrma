@@ -101,6 +101,16 @@
     #viewerWrap { flex: 1; position: relative; }
     canvas { display: block; width: 100%; height: 100%; }
     .section-title { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+    .auth-box { display: flex; flex-direction: column; gap: 8px; }
+    .auth-state {
+      font-size: 11.5px; line-height: 1.5; color: var(--muted);
+      border-left: 2px solid var(--border); padding-left: 8px;
+    }
+    .auth-state.ok { color: var(--accent); border-color: var(--accent); }
+    .auth-state.err { color: #ff8484; border-color: #ff8484; }
+    .auth-actions { display: flex; gap: 8px; }
+    .auth-actions button { flex: 1; padding: 8px; font-size: 12px; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
@@ -113,13 +123,29 @@
     <input type="file" id="vrmFile" accept=".vrm" style="display:none" />
     <p class="sub" id="vrmName">読み込み中... — 3Dビューへのドラッグ&amp;ドロップでも読み込めます。</p>
 
-    <div class="section-title">2. 🤖 OpenAI API 設定</div>
-    <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" />
-    <select id="modelSelect">
-      <option value="gpt-5.6-sol">gpt-5.6-sol (最高精度)</option>
-      <option value="gpt-5.6-terra">gpt-5.6-terra (バランス)</option>
-      <option value="gpt-5.6-luna">gpt-5.6-luna (低コスト)</option>
+    <div class="section-title">2. 🤖 OpenAI 認証・モデル</div>
+    <select id="authMode">
+      <option value="api-key">OpenAI APIキー</option>
+      <option value="codex">Codexサブスクリプション</option>
     </select>
+    <div id="apiSettings" class="auth-box">
+      <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" />
+      <select id="apiModelSelect">
+        <option value="gpt-5.6-sol">gpt-5.6-sol (最高精度)</option>
+        <option value="gpt-5.6-terra">gpt-5.6-terra (バランス)</option>
+        <option value="gpt-5.6-luna">gpt-5.6-luna (低コスト)</option>
+      </select>
+    </div>
+    <div id="codexSettings" class="auth-box hidden">
+      <div id="codexAuthState" class="auth-state">Codex CLIを確認中...</div>
+      <select id="codexModelSelect" disabled>
+        <option value="">ログイン後にモデルを取得します</option>
+      </select>
+      <div class="auth-actions">
+        <button id="codexLoginBtn" class="primary-outline">ChatGPTでログイン</button>
+        <button id="codexLogoutBtn" disabled>ログアウト</button>
+      </div>
+    </div>
     <label class="check" title="生成後にもう1パス、可動域・軌道・緩急のセルフレビューを行って品質を上げます。時間とAPIコストは約2倍になります。">
       <input type="checkbox" id="refineCheck" checked />
       🔍 自己修正 (2パス生成で品質向上)
