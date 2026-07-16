@@ -367,36 +367,30 @@ export async function generateMotionWithOpenAI(
   return spec;
 }
 
-// ARDYモード用: GPTが「頭脳」として動作分割と、動作ごとの最適エンジン割り当てを行う
+// ARDYモード用: GPTが「頭脳」として英訳・動作分割・時間配分を行う
+// (モーション生成そのものは常にARDY。キーフレーム生成は混ぜない)
 const ARDY_PLAN_PROMPT = `あなたはモーションディレクターです。ユーザーの指示を、
-2種類の生成エンジンを組み合わせた実行計画 (セグメント列) に変換してください。
+text-to-motionモデル (ARDY) に渡す英語の動作セグメント列に変換してください。
 
-エンジンの特性:
-- "ardy": モーションキャプチャAI。歩く・走る・踊る・ふらつく等、移動や
-  全身が連動する持続的な動きが本物の人間並みに自然。
-  弱点: ジャンプ・キック等の単発アクションが確実に出ないことがある。指は動かない。
-  text は "A person ..." で始まる具体的で簡潔な英文。
-- "keyframes": キーフレーム設計。ジャンプ・キック・お辞儀・手を振る・ポーズ・
-  手指の動きなど「単発の明確なアクション」を確実に実行できる。
-  弱点: 歩行・走行などの移動は不自然になるため使わない。
-  text は日本語でよい (例: "その場で両足で高くジャンプする")。
-
-計画ルール:
-- 指示を動作単位のセグメントに分割し (最大6個)、それぞれに最適なエンジンを割り当てる
-  (例: 「走ってジャンプ」 → ardy で走る + keyframes でジャンプ)
-- 移動・持続動作 → ardy / 単発アクション・精密ポーズ・手指 → keyframes
-- ardy の持続動作を5秒以上続けたい場合は、同じ英文を duration 4〜5秒の
-  セグメントとして必要な回数繰り返す (1セグメント内で動作を完了すると止まる癖があるため)
-- keyframes の duration は 2〜4秒
+ルール:
+- 各セグメントは "A person ..." で始まる、単一の具体的な動作の簡潔な英文にする
+- 「〜してから」「その後」などの連続動作はセグメントを分ける (最大6個)
 - duration の合計は60秒以内
+- 持続動作 (歩く・走る・踊る等) を5秒以上続けたい場合は、同じ英文を
+  duration 4〜5秒のセグメントとして必要な回数繰り返す
+  (モデルは1セグメント内で動作を完了すると止まる癖があるため)
+- ジャンプ・キック等の単発アクションは duration 3〜4秒とし、動作が明確に
+  伝わる具体的な英文にする (例: "A person jumps up high with both feet
+  leaving the ground." — 曖昧な "jumps" だけより確実に発火する)
 - 小道具が必要な動作は体の動きだけで表現できる形に言い換える
+  (例: ボールを蹴る → "A person kicks with the right leg.")
 - expression: モーション全体の感情 happy / sad / angry / surprised / relaxed のどれか、
   読み取れなければ null
 
 JSON形式で返答:
 {"segments": [
-  {"engine": "ardy", "text": "A person runs forward fast.", "duration": 4},
-  {"engine": "keyframes", "text": "その場で両足で高くジャンプする", "duration": 2.5}
+  {"text": "A person runs forward fast.", "duration": 4},
+  {"text": "A person jumps up high with both feet leaving the ground.", "duration": 3}
 ], "expression": null}`;
 
 /**
@@ -428,7 +422,6 @@ export async function planArdySegments(text, apiKey, model, { waypointCount = 0,
     .filter((s) => typeof s?.text === 'string' && s.text.trim())
     .slice(0, 6)
     .map((s) => ({
-      engine: s.engine === 'keyframes' ? 'keyframes' : 'ardy',
       text: s.text.trim(),
       duration: Math.max(1, Math.min(30, Number(s.duration) || 5)),
     }));
