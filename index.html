@@ -99,6 +99,13 @@
     }
     .hist-item button.play { color: var(--accent); border-color: var(--accent); }
     #viewerWrap { flex: 1; position: relative; }
+    #waypointGuide {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(18, 20, 26, 0.85); color: var(--accent);
+      padding: 6px 14px; border-radius: 8px; font-size: 12px;
+      border: 1px solid rgba(74, 222, 128, 0.4); pointer-events: none;
+      white-space: nowrap;
+    }
     canvas { display: block; width: 100%; height: 100%; }
     .section-title { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; }
     .auth-box { display: flex; flex-direction: column; gap: 8px; }
@@ -108,6 +115,14 @@
     }
     .auth-state.ok { color: var(--accent); border-color: var(--accent); }
     .auth-state.err { color: #ff8484; border-color: #ff8484; }
+    .gen-progress-track {
+      height: 8px; border-radius: 4px; overflow: hidden;
+      background: rgba(255, 255, 255, 0.08); margin-top: 8px;
+    }
+    .gen-progress-bar {
+      height: 100%; width: 0%; background: var(--accent);
+      border-radius: 4px; transition: width 0.4s ease;
+    }
     .auth-actions { display: flex; gap: 8px; }
     .auth-actions button { flex: 1; padding: 8px; font-size: 12px; }
     .hidden { display: none !important; }
@@ -123,10 +138,11 @@
     <input type="file" id="vrmFile" accept=".vrm" style="display:none" />
     <p class="sub" id="vrmName">読み込み中... — 3Dビューへのドラッグ&amp;ドロップでも読み込めます。</p>
 
-    <div class="section-title">2. 🤖 OpenAI 認証・モデル</div>
+    <div class="section-title">2. 🤖 生成エンジン</div>
     <select id="authMode">
       <option value="api-key">OpenAI APIキー</option>
       <option value="codex">Codexサブスクリプション</option>
+      <option value="ardy">ARDYローカルエンジン</option>
     </select>
     <div id="apiSettings" class="auth-box">
       <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" />
@@ -146,13 +162,42 @@
         <button id="codexLogoutBtn" disabled>ログアウト</button>
       </div>
     </div>
+    <div id="ardySettings" class="auth-box hidden">
+      <div id="ardyState" class="auth-state">エンジン未確認</div>
+      <div class="auth-actions">
+        <button id="ardyStartBtn" class="primary-outline hidden">エンジンを起動</button>
+      </div>
+      <label class="check" title="ONにすると3Dビューの床をクリックして経由地を置けます。キャラクターは経由地を順番に通るように動きます。右クリックで1つ取り消し。">
+        <input type="checkbox" id="waypointCheck" /> 📍 経由地モード (床クリックで配置)
+      </label>
+      <div class="auth-actions">
+        <button id="waypointClearBtn" class="hidden">経由地をクリア</button>
+      </div>
+      <p class="sub" title="全身運動はNVIDIAのモーションAI、精密なポーズ指定はGPTキーフレームに自動で振り分けます (APIキー保存時)。APIキーがない場合はARDY単体+ローカル英訳で動きます。">ARDY (体) × GPT (頭) のハイブリッド。日本語OK、長さ・表情は自動。</p>
+      <details>
+        <summary class="sub">詳細設定</summary>
+        <input type="text" id="ardyUrl" value="http://127.0.0.1:2337" title="ARDYエンジンサーバーのURL" style="width:100%" />
+      </details>
+    </div>
     <label class="check" title="生成後にもう1パス、可動域・軌道・緩急のセルフレビューを行って品質を上げます。時間とAPIコストは約2倍になります。">
       <input type="checkbox" id="refineCheck" checked />
       🔍 自己修正 (2パス生成で品質向上)
     </label>
     <div class="section-title">3. モーションをテキストで指示</div>
     <textarea id="textInput" placeholder="例: その場で歩く&#10;例: 喜んでジャンプする&#10;例: 手を振る&#10;例: 悲しそうにうつむく"></textarea>
+    <label class="check" title="生成したモーションを繰り返し再生するか。自動は、エンジンの判断 (LLMモード) または動きの内容 (ARDY: その場の動きならループ、移動する動きなら1回) で決まります。">
+      ループ再生:
+      <select id="loopSelect" style="flex:1">
+        <option value="auto">自動</option>
+        <option value="on">常にループ</option>
+        <option value="off">1回だけ再生</option>
+      </select>
+    </label>
     <button id="generateBtn">▶ モーション生成 &amp; 再生</button>
+    <div id="genProgress" class="hidden">
+      <div class="gen-progress-track"><div id="genProgressBar" class="gen-progress-bar"></div></div>
+      <p class="sub" id="genProgressText"></p>
+    </div>
 
     <button id="exportBtn" disabled>⬇ .vrma 保存</button>
     <label class="check">
@@ -168,6 +213,7 @@
 
   <div id="viewerWrap">
     <canvas id="canvas"></canvas>
+    <div id="waypointGuide" class="hidden">📍 床クリック: 経由地を追加 / 右クリック: 1つ取り消し — キャラは番号順に通ります</div>
   </div>
 
   <script type="module" src="/src/main.js"></script>

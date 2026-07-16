@@ -12,3 +12,9 @@ contextBridge.exposeInMainWorld('codexBridge', {
     return () => ipcRenderer.removeListener('codex:account-changed', handler);
   },
 });
+
+contextBridge.exposeInMainWorld('ardyBridge', {
+  getStatus: () => ipcRenderer.invoke('ardy:get-status'),
+  start: () => ipcRenderer.invoke('ardy:start'),
+  stop: () => ipcRenderer.invoke('ardy:stop'),
+});

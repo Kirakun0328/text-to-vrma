@@ -229,7 +229,7 @@ function applyWaveCorrection(spec) {
   }
 }
 
-async function callOpenAI(messages, apiKey, model) {
+async function callOpenAI(messages, apiKey, model, onDelta) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -240,6 +240,7 @@ async function callOpenAI(messages, apiKey, model) {
       model,
       response_format: { type: 'json_object' },
       messages,
+      ...(onDelta ? { stream: true } : {}),
     }),
   });
 
@@ -252,10 +253,48 @@ async function callOpenAI(messages, apiKey, model) {
     throw new Error(`OpenAI API エラー: ${detail}`);
   }
 
+  // ストリーミング受信: 受信文字数を進捗コールバックに流す
+  if (onDelta && res.body) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    let content = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const lines = pending.split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        const data = line.replace(/^data: /, '').trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const delta = JSON.parse(data).choices?.[0]?.delta?.content;
+          if (delta) {
+            content += delta;
+            onDelta(content.length);
+          }
+        } catch { /* SSEコメント等は無視 */ }
+      }
+    }
+    if (!content) throw new Error('OpenAI API から有効な応答が得られませんでした');
+    return content;
+  }
+
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('OpenAI API から有効な応答が得られませんでした');
   return content;
+}
+
+// 進捗%の分母に使う「1回の応答のだいたいの文字数」を過去実績のEMAで学習する
+const RESP_CHARS_KEY = 'llm-resp-chars-ema';
+function expectedResponseChars() {
+  return Number(localStorage.getItem(RESP_CHARS_KEY)) || 6000;
+}
+function updateExpectedResponseChars(actual) {
+  const prev = expectedResponseChars();
+  localStorage.setItem(RESP_CHARS_KEY, String(Math.round(prev * 0.6 + actual * 0.4)));
 }
 
 /**
@@ -272,13 +311,17 @@ export async function generateMotionWithOpenAI(
   text,
   apiKey,
   model = DEFAULT_OPENAI_MODEL,
-  { refine = true, onProgress } = {}
+  { refine = true, onProgress, onFraction } = {}
 ) {
   // 演出の味付けをランダムに混ぜて、同じ指示でも毎回違う振り付けを引き出す
   const flavor = randomFlavor();
   const userMsg =
     `次の動きのモーションを作成: ${text}\n` +
     `(今回の演出の味付け: ${flavor}。ただしユーザーの指示と矛盾する場合は指示を優先)`;
+
+  // 進捗%: 受信文字数 ÷ 過去実績の期待文字数。2パス構成なら 1パス目=0〜60%
+  const expected = expectedResponseChars();
+  const pass1End = refine ? 0.6 : 1.0;
 
   // 1パス目: 生成
   const draft = await callOpenAI(
@@ -287,8 +330,10 @@ export async function generateMotionWithOpenAI(
       { role: 'user', content: userMsg },
     ],
     apiKey,
-    model
+    model,
+    onFraction && ((chars) => onFraction(Math.min(0.99, (chars / expected) * pass1End), 1))
   );
+  updateExpectedResponseChars(draft.length);
   let spec = JSON.parse(draft);
   validateSpec(spec);
 
@@ -304,7 +349,8 @@ export async function generateMotionWithOpenAI(
           { role: 'user', content: REFINE_INSTRUCTION },
         ],
         apiKey,
-        model
+        model,
+        onFraction && ((chars) => onFraction(Math.min(0.99, pass1End + (chars / expected) * (1 - pass1End)), 2))
       );
       const refinedSpec = JSON.parse(refined);
       validateSpec(refinedSpec);
@@ -318,6 +364,79 @@ export async function generateMotionWithOpenAI(
   if (WAVE_RE.test(text)) applyWaveCorrection(spec);
   spec.flavor = flavor; // 表示用 (buildVRMA では無視される)
   return spec;
+}
+
+// ARDYモード用: GPTが「頭脳」としてエンジン振り分け・英訳・動作分割を行う
+const ARDY_PLAN_PROMPT = `あなたはモーションディレクターです。ユーザーの指示を分析し、
+2つのモーションエンジンのどちらで生成すべきか判断した上で、生成計画を作ってください。
+
+エンジンの特性:
+- "ardy": モーションキャプチャAI。歩く・走る・踊る・ジャンプ・格闘など、
+  全身が連動する動的な動きが本物の人間並みに自然。ただし指は動かせず、
+  細かいポーズの正確な指定はできない
+- "keyframes": キーフレーム設計。「右手でピースする」「両手を腰に当てて立つ」
+  「指を一本ずつ折る」のような正確なポーズ・手指・静的な構図の指定が得意。
+  ただし歩行等の全身運動は不自然になる
+
+判断基準: 移動・全身運動・勢いが主役なら "ardy"、正確なポーズ・手指・
+静止した構図が主役なら "keyframes"。迷ったら動きの量で決める。
+
+engine が "ardy" の場合のみ、以下のルールでセグメント列も作る:
+- 各セグメントは "A person ..." で始まる、単一の具体的な動作の簡潔な英文にする
+- 「〜してから」「その後」などの連続動作はセグメントを分ける (最大6個)
+- duration は各動作の自然な長さ (秒)。単発ジェスチャは2〜4秒。合計60秒以内
+- 重要: モデルは1セグメント内で動作を一度完了すると止まる癖がある。
+  歩く・走る・踊る等の持続動作を5秒以上続けたい場合は、同じ英文を
+  duration 4〜5秒のセグメントとして必要な回数繰り返して並べる
+- 小道具が必要な動作は、体の動きだけで表現できる形に言い換える
+  (例: ボールを蹴る → "A person kicks with the right leg.")
+- expression: モーション全体の感情に合うものを happy / sad / angry / surprised / relaxed
+  から1つ。感情が読み取れなければ null
+
+JSON形式で返答:
+{"engine": "ardy", "segments": [{"text": "...", "duration": 5}], "expression": "happy"}
+または {"engine": "keyframes"}`;
+
+/**
+ * GPTが「頭脳」としてエンジン振り分けとARDY用の生成計画 (英訳+動作分割) を作る。
+ * @returns {Promise<{engine: 'ardy'|'keyframes', segments?: {text: string, duration: number}[], expression?: string|null}>}
+ */
+export async function planArdySegments(text, apiKey, model, { waypointCount = 0, pathMeters = 0 } = {}) {
+  let userMsg = text;
+  if (waypointCount > 0) {
+    userMsg +=
+      `\n\n(参考: ユーザーは3Dビューに経由地を${waypointCount}個置いており、` +
+      `合計約${Math.round(pathMeters)}mの経路を通る移動になります。` +
+      `移動しながら行う動作として計画し、合計durationは歩速1m/s換算で経路を回りきれる長さにしてください。` +
+      `この場合 engine は "ardy" にしてください)`;
+  }
+  const content = await callOpenAI(
+    [
+      { role: 'system', content: ARDY_PLAN_PROMPT },
+      { role: 'user', content: userMsg },
+    ],
+    apiKey,
+    model
+  );
+  const plan = JSON.parse(content);
+  if (plan.engine === 'keyframes') {
+    return { engine: 'keyframes' };
+  }
+  plan.engine = 'ardy';
+  if (!Array.isArray(plan.segments) || plan.segments.length === 0) {
+    throw new Error('GPTの動作分割結果が不正です');
+  }
+  plan.segments = plan.segments
+    .filter((s) => typeof s?.text === 'string' && s.text.trim())
+    .slice(0, 6)
+    .map((s) => ({
+      text: s.text.trim(),
+      duration: Math.max(1, Math.min(30, Number(s.duration) || 5)),
+    }));
+  if (!['happy', 'sad', 'angry', 'surprised', 'relaxed'].includes(plan.expression)) {
+    plan.expression = null;
+  }
+  return plan;
 }
 
 /**

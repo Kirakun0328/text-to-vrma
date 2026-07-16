@@ -4,6 +4,7 @@ const { app, BrowserWindow, Menu, protocol, net, shell, ipcMain, dialog } = requ
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { CodexClient, friendlyError } = require('./codex-client.cjs');
+const { ArdyClient } = require('./ardy-client.cjs');
 
 // file:// では fetch が使えないため、標準スキーム扱いの app:// で配信する
 protocol.registerSchemesAsPrivileged([
@@ -15,6 +16,7 @@ protocol.registerSchemesAsPrivileged([
 
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 let codexClient;
+let ardyClient;
 
 function broadcastCodexStatus(status) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -60,6 +62,16 @@ function registerCodexIpc() {
   });
 }
 
+function registerArdyIpc() {
+  ardyClient = new ArdyClient({
+    userDataDir: app.getPath('userData'),
+    engineDir: path.join(__dirname, '..', 'tools', 'ardy-engine'),
+  });
+  ipcMain.handle('ardy:get-status', () => ardyClient.getStatus());
+  ipcMain.handle('ardy:start', () => ardyClient.start());
+  ipcMain.handle('ardy:stop', () => ardyClient.stop());
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -85,6 +97,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   registerCodexIpc();
+  registerArdyIpc();
   protocol.handle('app', (request) => {
     const { pathname } = new URL(request.url);
     const rel = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
@@ -106,5 +119,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   codexClient?.close();
+  ardyClient?.stop();
   if (process.platform !== 'darwin') app.quit();
 });
