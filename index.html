@@ -99,6 +99,17 @@
     }
     .hist-item button.play { color: var(--accent); border-color: var(--accent); }
     #viewerWrap { flex: 1; position: relative; }
+    #updateBanner {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: #1d2733; color: var(--accent); text-align: center;
+      padding: 8px 12px; font-size: 13px;
+      border-bottom: 1px solid rgba(74, 222, 128, 0.4);
+    }
+    #updateBanner a { color: var(--accent); font-weight: bold; }
+    #updateBanner button {
+      background: none; border: none; color: #8b93a5; cursor: pointer;
+      font-size: 14px; margin-left: 12px;
+    }
     #waypointGuide {
       position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
       background: rgba(18, 20, 26, 0.85); color: var(--accent);

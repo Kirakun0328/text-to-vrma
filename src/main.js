@@ -1,4 +1,5 @@
 // main.js — UI と各モジュールの結線
+import pkg from '../package.json';
 import { Viewer } from './viewer.js';
 import { buildVRMA } from './vrmaBuilder.js';
 import { idleSpec } from './idleMotion.js';
@@ -646,6 +647,44 @@ apiKeyInput.value = localStorage.getItem('openai-api-key') ?? '';
 refineCheck.checked = localStorage.getItem('refine-enabled') !== '0';
 exprCheck.checked = localStorage.getItem('export-expressions') !== '0';
 loopSelect.value = 'auto'; // ループ再生は毎回「自動」で開始 (記憶しない)
+
+// --- 更新チェック: 公開リポジトリの最新バージョンと比較して通知する ---
+// (バージョン番号の取得だけで、個人情報は一切送信されません)
+const VERSION_URL = 'https://raw.githubusercontent.com/Kirakun0328/text-to-vrma/master/package.json';
+const RELEASES_URL = 'https://github.com/Kirakun0328/text-to-vrma/releases';
+
+function isNewerVersion(remote, local) {
+  const r = String(remote).split('.').map(Number);
+  const l = String(local).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((r[i] || 0) > (l[i] || 0)) return true;
+    if ((r[i] || 0) < (l[i] || 0)) return false;
+  }
+  return false;
+}
+
+async function checkForUpdate() {
+  try {
+    const res = await fetch(VERSION_URL, { signal: AbortSignal.timeout(5000), cache: 'no-store' });
+    const remote = (await res.json()).version;
+    if (!isNewerVersion(remote, pkg.version)) return;
+    if (localStorage.getItem('update-dismissed') === remote) return;
+    const banner = document.createElement('div');
+    banner.id = 'updateBanner';
+    banner.innerHTML =
+      `🔔 新しいバージョン v${remote} が公開されています (現在 v${pkg.version}) ` +
+      `<a href="${RELEASES_URL}" target="_blank" rel="noopener">ダウンロード</a> ` +
+      `<button type="button">×</button>`;
+    banner.querySelector('button').addEventListener('click', () => {
+      localStorage.setItem('update-dismissed', remote);
+      banner.remove();
+    });
+    document.body.prepend(banner);
+  } catch {
+    // オフライン等で確認できない場合は何もしない
+  }
+}
+checkForUpdate();
 const savedModel = localStorage.getItem('openai-model');
 if (savedModel && [...apiModelSelect.options].some((o) => o.value === savedModel)) {
   apiModelSelect.value = savedModel;
