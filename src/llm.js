@@ -367,36 +367,37 @@ export async function generateMotionWithOpenAI(
   return spec;
 }
 
-// ARDYモード用: GPTが「頭脳」としてエンジン振り分け・英訳・動作分割を行う
-const ARDY_PLAN_PROMPT = `あなたはモーションディレクターです。ユーザーの指示を分析し、
-2つのモーションエンジンのどちらで生成すべきか判断した上で、生成計画を作ってください。
+// ARDYモード用: GPTが「頭脳」として動作分割と、動作ごとの最適エンジン割り当てを行う
+const ARDY_PLAN_PROMPT = `あなたはモーションディレクターです。ユーザーの指示を、
+2種類の生成エンジンを組み合わせた実行計画 (セグメント列) に変換してください。
 
 エンジンの特性:
-- "ardy": モーションキャプチャAI。歩く・走る・踊る・ジャンプ・格闘など、
-  全身が連動する動的な動きが本物の人間並みに自然。ただし指は動かせず、
-  細かいポーズの正確な指定はできない
-- "keyframes": キーフレーム設計。「右手でピースする」「両手を腰に当てて立つ」
-  「指を一本ずつ折る」のような正確なポーズ・手指・静的な構図の指定が得意。
-  ただし歩行等の全身運動は不自然になる
+- "ardy": モーションキャプチャAI。歩く・走る・踊る・ふらつく等、移動や
+  全身が連動する持続的な動きが本物の人間並みに自然。
+  弱点: ジャンプ・キック等の単発アクションが確実に出ないことがある。指は動かない。
+  text は "A person ..." で始まる具体的で簡潔な英文。
+- "keyframes": キーフレーム設計。ジャンプ・キック・お辞儀・手を振る・ポーズ・
+  手指の動きなど「単発の明確なアクション」を確実に実行できる。
+  弱点: 歩行・走行などの移動は不自然になるため使わない。
+  text は日本語でよい (例: "その場で両足で高くジャンプする")。
 
-判断基準: 移動・全身運動・勢いが主役なら "ardy"、正確なポーズ・手指・
-静止した構図が主役なら "keyframes"。迷ったら動きの量で決める。
-
-engine が "ardy" の場合のみ、以下のルールでセグメント列も作る:
-- 各セグメントは "A person ..." で始まる、単一の具体的な動作の簡潔な英文にする
-- 「〜してから」「その後」などの連続動作はセグメントを分ける (最大6個)
-- duration は各動作の自然な長さ (秒)。単発ジェスチャは2〜4秒。合計60秒以内
-- 重要: モデルは1セグメント内で動作を一度完了すると止まる癖がある。
-  歩く・走る・踊る等の持続動作を5秒以上続けたい場合は、同じ英文を
-  duration 4〜5秒のセグメントとして必要な回数繰り返して並べる
-- 小道具が必要な動作は、体の動きだけで表現できる形に言い換える
-  (例: ボールを蹴る → "A person kicks with the right leg.")
-- expression: モーション全体の感情に合うものを happy / sad / angry / surprised / relaxed
-  から1つ。感情が読み取れなければ null
+計画ルール:
+- 指示を動作単位のセグメントに分割し (最大6個)、それぞれに最適なエンジンを割り当てる
+  (例: 「走ってジャンプ」 → ardy で走る + keyframes でジャンプ)
+- 移動・持続動作 → ardy / 単発アクション・精密ポーズ・手指 → keyframes
+- ardy の持続動作を5秒以上続けたい場合は、同じ英文を duration 4〜5秒の
+  セグメントとして必要な回数繰り返す (1セグメント内で動作を完了すると止まる癖があるため)
+- keyframes の duration は 2〜4秒
+- duration の合計は60秒以内
+- 小道具が必要な動作は体の動きだけで表現できる形に言い換える
+- expression: モーション全体の感情 happy / sad / angry / surprised / relaxed のどれか、
+  読み取れなければ null
 
 JSON形式で返答:
-{"engine": "ardy", "segments": [{"text": "...", "duration": 5}], "expression": "happy"}
-または {"engine": "keyframes"}`;
+{"segments": [
+  {"engine": "ardy", "text": "A person runs forward fast.", "duration": 4},
+  {"engine": "keyframes", "text": "その場で両足で高くジャンプする", "duration": 2.5}
+], "expression": null}`;
 
 /**
  * GPTが「頭脳」としてエンジン振り分けとARDY用の生成計画 (英訳+動作分割) を作る。
@@ -420,10 +421,6 @@ export async function planArdySegments(text, apiKey, model, { waypointCount = 0,
     model
   );
   const plan = JSON.parse(content);
-  if (plan.engine === 'keyframes') {
-    return { engine: 'keyframes' };
-  }
-  plan.engine = 'ardy';
   if (!Array.isArray(plan.segments) || plan.segments.length === 0) {
     throw new Error('GPTの動作分割結果が不正です');
   }
@@ -431,9 +428,13 @@ export async function planArdySegments(text, apiKey, model, { waypointCount = 0,
     .filter((s) => typeof s?.text === 'string' && s.text.trim())
     .slice(0, 6)
     .map((s) => ({
+      engine: s.engine === 'keyframes' ? 'keyframes' : 'ardy',
       text: s.text.trim(),
       duration: Math.max(1, Math.min(30, Number(s.duration) || 5)),
     }));
+  if (plan.segments.length === 0) {
+    throw new Error('GPTの動作分割結果が不正です');
+  }
   if (!['happy', 'sad', 'angry', 'surprised', 'relaxed'].includes(plan.expression)) {
     plan.expression = null;
   }

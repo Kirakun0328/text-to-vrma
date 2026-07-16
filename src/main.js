@@ -5,6 +5,7 @@ import { Viewer } from './viewer.js';
 import { buildVRMA } from './vrmaBuilder.js';
 import { idleSpec } from './idleMotion.js';
 import { autoExpressions } from './autoExpressions.js';
+import { mergeSequentialSpecs, appendNeutralEnding } from './specMerge.js';
 import {
   generateMotionWithOpenAI,
   generateMotionWithCodex,
@@ -214,50 +215,78 @@ async function generateMotionWithArdy(text, { onProgress } = {}) {
     }
   }
 
-  // GPTが「精密ポーズ向き」と判断した依頼はキーフレーム方式に自動で切り替える
-  // (ただし経由地が置かれている場合は移動が主目的なのでARDYを維持)
-  if (plan?.engine === 'keyframes' && waypoints.length > 0) plan.engine = 'ardy';
-  if (plan?.engine === 'keyframes') {
-    onProgress?.(t('ardy.routed'));
-    const progress = startLLMProgressBar();
+  const waypointsActive = waypointCheck.checked && waypoints.length > 0;
+
+  // ARDYエンジン (サーバー) でセグメント群を生成する
+  async function ardyGenerate(body) {
+    const stopProgress = startArdyProgressBar(url);
+    let res;
     try {
-      const spec = await generateMotionWithOpenAI(text, apiKey, gptModel, {
-        refine: refineCheck.checked,
-        onProgress,
-        onFraction: progress.update,
+      res = await fetch(`${url}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
-      spec.routedEngine = 'keyframes';
-      return spec;
     } finally {
-      progress.done();
+      stopProgress();
     }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || t('err.ardyHttp', { code: res.status }));
+    }
+    return res.json();
   }
 
-  onProgress?.(t('ardy.generating'));
-  const stopProgress = startArdyProgressBar(url);
-  const body = plan?.segments?.length ? { segments: plan.segments } : { text };
-  // 経由地は「📍経由地モード」がONのときだけ有効 (OFF = 置いてあっても使わない)
-  if (waypointCheck.checked && waypoints.length) {
-    body.waypoints = waypoints.map((w) => ({ x: w.x, z: w.z }));
+  let spec;
+  if (plan?.segments?.length && !waypointsActive) {
+    // GPT計画に従い、セグメントごとに最適なエンジンで生成して合成する
+    // (移動系=ARDY / 単発アクション=GPTキーフレーム — 両者の強みの混成)
+    const parts = [];
+    let i = 0;
+    while (i < plan.segments.length) {
+      const seg = plan.segments[i];
+      if (seg.engine === 'keyframes') {
+        onProgress?.(t('ardy.routed'));
+        const progress = startLLMProgressBar();
+        try {
+          const part = await generateMotionWithOpenAI(seg.text, apiKey, gptModel, {
+            refine: false, // セグメント単位は短いので1パスで十分
+            onProgress,
+            onFraction: progress.update,
+          });
+          parts.push(part);
+        } finally {
+          progress.done();
+        }
+        i++;
+      } else {
+        // 連続するARDYセグメントはまとめて1回のサーバー呼び出しで生成
+        const group = [];
+        while (i < plan.segments.length && plan.segments[i].engine !== 'keyframes') {
+          group.push({ text: plan.segments[i].text, duration: plan.segments[i].duration });
+          i++;
+        }
+        onProgress?.(t('ardy.generating'));
+        parts.push(await ardyGenerate({ segments: group }));
+      }
+    }
+    spec = parts.length > 1 ? mergeSequentialSpecs(parts) : parts[0];
+    spec.originalText = text;
+  } else {
+    // 経由地あり or GPT計画なし: 従来通りサーバーに一括依頼
+    onProgress?.(t('ardy.generating'));
+    const body = plan?.segments?.length
+      ? { segments: plan.segments.map((s) => ({ text: s.text, duration: s.duration })) }
+      : { text };
+    if (waypointsActive) body.waypoints = waypoints.map((w) => ({ x: w.x, z: w.z }));
+    spec = await ardyGenerate(body);
+    if (plan) spec.originalText = text;
   }
-  let res;
-  try {
-    res = await fetch(`${url}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } finally {
-    stopProgress();
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || t('err.ardyHttp', { code: res.status }));
-  }
-  const spec = await res.json();
-  if (plan) spec.originalText = text;
+
   // 自動判定時のループ既定値 (共通のon/off上書きは生成ハンドラ側で行う)
   spec.loop = isLoopFriendly(spec);
+  // 非ループは最後に自然な直立姿勢へ戻して終わる (中途半端なポーズで固まらない)
+  if (!spec.loop) appendNeutralEnding(spec);
   // ARDYは表情を生成しないので自動付与する (GPTの感情判定があれば優先、
   // なければ原文の感情語からのキーワードマッチ)
   spec.expressions = autoExpressions(spec.originalText ?? text, spec.duration, plan?.expression);
