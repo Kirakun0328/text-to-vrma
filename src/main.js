@@ -124,7 +124,7 @@ function setArdyState(message, kind = '') {
   ardyState.className = `auth-state${kind ? ` ${kind}` : ''}`;
 }
 
-async function checkArdyHealth() {
+async function checkArdyHealth({ showFailure = true } = {}) {
   const url = ardyUrlInput.value.trim().replace(/\/$/, '');
   try {
     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
@@ -135,6 +135,9 @@ async function checkArdyHealth() {
     ardyStartBtn.classList.add('hidden');
     return true;
   } catch {
+    // 起動待ちのポーリング中は、モデル初期化中の接続失敗で
+    // 「未起動」表示や起動ボタンを一時的に復活させない。
+    if (!showFailure) return false;
     if (window.ardyBridge) {
       // 未セットアップならボタンを「セットアップ」に切り替える (JSONを触らせない)
       const st = await window.ardyBridge.getStatus().catch(() => null);
@@ -293,7 +296,7 @@ async function startArdyEngine() {
     setArdyState(t('ardy.starting'));
     for (let i = 0; i < 90; i++) {
       await new Promise((r) => setTimeout(r, 2000));
-      if (await checkArdyHealth()) return;
+      if (await checkArdyHealth({ showFailure: false })) return;
       const s = await window.ardyBridge.getStatus();
       if (!s.running) {
         setArdyState(`❌ ${s.lastError || t('ardy.exited')}`, 'err');
