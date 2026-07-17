@@ -91,16 +91,26 @@ NVIDIA Research の text-to-motion モデル
 
 | | 最低 | 推奨 |
 | --- | --- | --- |
-| OS | Windows 10/11 64bit | 同左 |
+| OS | Windows 10/11 64bit、macOS | 同左 |
 | RAM | 16GB | 32GB+ |
 | ディスク | 35GB | 同左 |
 | GPU | 不要 (CPUで1回数十秒) | NVIDIA GPU 6GB+ (1回数秒) |
 
 **セットアップ** (Python 3.10+ と git が必要。約20GBダウンロードします):
 
+Windows:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\ardy-engine\install.ps1
 ```
+
+macOS:
+
+```bash
+bash tools/ardy-engine/install_mac.sh
+```
+
+macOSでHomebrewが未導入の場合は、セットアップ中に自動でインストールされます。
 
 完了後、エンジンを起動してからアプリの「ARDYローカルエンジン」モードを選択します。
 詳細・手動起動・APIは [tools/ardy-engine/README.md](tools/ardy-engine/README.md) を参照してください。
@@ -147,6 +157,7 @@ spec 以降は両モード共通:
 | `tools/ardy-engine/server.py` | ARDY常駐サーバー: 生成・日本語翻訳・経由地制約・進捗API |
 | `tools/ardy-engine/retarget.py` | ARDY Coreスケルトン → VRM Humanoid リターゲット |
 | `tools/ardy-engine/install.ps1` | エンジンのワンコマンドセットアップ |
+| `tools/ardy-engine/install_mac.sh` | macOS用エンジンのワンコマンドセットアップ |
 
 ## モーション spec フォーマット
 

@@ -119,7 +119,18 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  // macOSはウィンドウを閉じてもアプリが常駐する。ここでエンジンを止めると、
+  // Dockから再表示した際に重いモデル初期化を最初からやり直すことになる。
+  if (process.platform !== 'darwin') {
+    codexClient?.close();
+    ardyClient?.stop();
+    app.quit();
+  }
+});
+
+// macOSではウィンドウを閉じてもアプリが常駐するため、Cmd+Qなどの終了時にも
+// エンジンを確実に停止し、孤児プロセスを残さない。
+app.on('before-quit', () => {
   codexClient?.close();
   ardyClient?.stop();
-  if (process.platform !== 'darwin') app.quit();
 });

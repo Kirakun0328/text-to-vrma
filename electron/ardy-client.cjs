@@ -17,6 +17,7 @@ const DEFAULT_PORT = 2337;
 class ArdyClient {
   constructor({ userDataDir, engineDir }) {
     this.configPath = path.join(userDataDir, 'ardy-engine.json');
+    this.logPath = path.join(userDataDir, 'ardy-engine.log');
     this.engineDir = engineDir; // tools/ardy-engine (server.py の場所)
     this.child = null;
     this.lastError = null;
@@ -44,6 +45,7 @@ class ArdyClient {
       configured: Boolean(config.pythonExe),
       running: Boolean(this.child && this.child.exitCode === null),
       port: config.port,
+      logPath: this.logPath,
       lastError: this.lastError,
     };
   }
@@ -80,21 +82,34 @@ class ArdyClient {
     this.lastError = null;
     // PATHを最小構成に洗浄して起動する: ユーザーのPATHに他のPyTorch/CUDA/conda
     // 環境があると、そちらのDLLが混ざって WinError 1114 (DLL初期化失敗) になるため
-    const systemRoot = process.env.SystemRoot || 'C:\\Windows';
-    const cleanPath = [
-      path.dirname(config.pythonExe),
-      path.join(systemRoot, 'System32'),
-      systemRoot,
-      path.join(systemRoot, 'System32', 'Wbem'),
-    ].join(';');
-    this.child = spawn(config.pythonExe, args, {
-      cwd: this.engineDir,
-      env: { ...process.env, PATH: cleanPath, TEXT_ENCODER_DEVICE: config.textEncoderDevice },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
+    let childPath = process.env.PATH;
+    if (process.platform === 'win32') {
+      const systemRoot = process.env.SystemRoot || 'C:\\Windows';
+      childPath = [
+        path.dirname(config.pythonExe),
+        path.join(systemRoot, 'System32'),
+        systemRoot,
+        path.join(systemRoot, 'System32', 'Wbem'),
+      ].join(';');
+    }
+    // stdout/stderrをパイプにすると、Electronが先に終了してARDYだけが残った場合に
+    // 次のログ出力がBrokenPipeとなり、生成リクエストの接続まで切れてしまう。
+    // 通常ファイルを子プロセスへ直接渡し、親プロセスの寿命から切り離す。
+    const logFd = fs.openSync(this.logPath, 'a');
+    try {
+      fs.writeSync(logFd, `\n--- ARDY start ${new Date().toISOString()} ---\n`);
+      this.child = spawn(config.pythonExe, args, {
+        cwd: this.engineDir,
+        env: { ...process.env, PATH: childPath, TEXT_ENCODER_DEVICE: config.textEncoderDevice },
+        stdio: ['ignore', logFd, logFd],
+        windowsHide: true,
+      });
+    } finally {
+      fs.closeSync(logFd);
+    }
+    this.child.on('error', (error) => {
+      this.lastError = `エンジンを起動できませんでした: ${error.message}`;
     });
-    this.child.stdout.on('data', (d) => process.stdout.write(`[ardy] ${d}`));
-    this.child.stderr.on('data', (d) => process.stderr.write(`[ardy] ${d}`));
     this.child.on('exit', (code) => {
       if (code !== 0 && code !== null) {
         this.lastError = `エンジンが終了しました (exit ${code})。ログを確認してください。`;
