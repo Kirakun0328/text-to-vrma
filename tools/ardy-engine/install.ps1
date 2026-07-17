@@ -72,9 +72,19 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 Write-Host "[2/5] Git: OK" -ForegroundColor Green
 
+# --- 2.5. Visual C++ ランタイム (PyTorchのDLLに必須。無いと WinError 1114 で失敗する) ---
+$vcOk = (Test-Path "$env:SystemRoot\System32\vcruntime140_1.dll") -and (Test-Path "$env:SystemRoot\System32\msvcp140.dll")
+if (-not $vcOk -and $hasWinget) {
+    Write-Host "Visual C++ ランタイムをインストールしています... (確認画面が出たら「はい」を押してください)" -ForegroundColor Green
+    winget install -e --id Microsoft.VCRedist.2015+.x64 --accept-source-agreements --accept-package-agreements | Out-Null
+}
+
 $hasNvidia = $false
 try { $null = nvidia-smi 2>$null; $hasNvidia = ($LASTEXITCODE -eq 0) } catch {}
 Write-Host "NVIDIA GPU: $(if ($hasNvidia) {'あり (高速生成)'} else {'なし (CPU生成: 1回数十秒)'})"
+
+# ダウンロード時の紛らわしい警告を抑制
+$env:HF_HUB_DISABLE_SYMLINKS_WARNING = '1'
 
 # --- 3. C++ビルドツール (MinGW) ---
 $mingwPkg = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe"
@@ -102,6 +112,22 @@ if ($hasNvidia) {
 } else {
     & $venvPy -m pip install torch
 }
+
+# PyTorchが本当に動くか検証 (WinError 1114 = VC++ランタイム不足を自己修復)
+& $venvPy -c "import torch" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "PyTorchの動作確認に失敗。Visual C++ ランタイムを再インストールします..." -ForegroundColor Yellow
+    if ($hasWinget) {
+        winget install -e --id Microsoft.VCRedist.2015+.x64 --accept-source-agreements --accept-package-agreements --force | Out-Null
+    }
+    & $venvPy -c "import torch" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw ("PyTorchを起動できません。以下を手動でインストール後、再実行してください:`n" +
+               "  Microsoft Visual C++ 再頒布可能パッケージ (x64)`n" +
+               "  https://aka.ms/vs/17/release/vc_redist.x64.exe")
+    }
+}
+Write-Host "PyTorch: OK" -ForegroundColor Green
 
 $ardyRepo = Join-Path $EngineRoot 'ardy'
 if (-not (Test-Path "$ardyRepo\setup.py")) {
