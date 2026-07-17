@@ -118,6 +118,8 @@ $cleanPath = @(
     "$env:SystemRoot\System32\WindowsPowerShell\v1.0"
 )
 if ($gitDir) { $cleanPath += $gitDir }
+# winget は WindowsApps 配下にあるため、洗浄後も使えるよう残す (DLLは含まれない)
+$cleanPath += "$env:LOCALAPPDATA\Microsoft\WindowsApps"
 $env:PATH = ($cleanPath -join ';')
 
 Write-Host "[4/5] AIエンジンを構築しています... (数GBのダウンロード)" -ForegroundColor Green
@@ -152,10 +154,10 @@ $torchOut = Test-TorchImport
 if ($torchOut -notmatch 'torch-ok') {
     Write-Host "PyTorchの動作確認に失敗しました。エラー内容:" -ForegroundColor Yellow
     Write-Host $torchOut.Trim() -ForegroundColor DarkGray
-    # 修復 (1/3): 過去に入った未検証バージョンを、検証済みバージョンへ入れ替える
+    # 修復 (1/4): 過去に入った未検証バージョンを、検証済みバージョンへ入れ替える
     $curVer = (Test-TorchVersion)
     if ($curVer -and $curVer -ne $TorchVer) {
-        Write-Host "修復 (1/3): PyTorch $curVer を検証済みの $TorchVer に入れ替えます..." -ForegroundColor Yellow
+        Write-Host "修復 (1/4): PyTorch $curVer を検証済みの $TorchVer に入れ替えます..." -ForegroundColor Yellow
         & $venvPy -m pip uninstall -y torch | Out-Null
         if ($hasNvidia) {
             & $venvPy -m pip install "torch==$TorchVer" --index-url https://download.pytorch.org/whl/cu128
@@ -166,27 +168,35 @@ if ($torchOut -notmatch 'torch-ok') {
     }
 }
 if ($torchOut -notmatch 'torch-ok') {
-    Write-Host "修復 (2/3): Visual C++ ランタイムを再インストールします..." -ForegroundColor Yellow
-    if ($hasWinget) {
-        winget install -e --id Microsoft.VCRedist.2015+.x64 --accept-source-agreements --accept-package-agreements --force | Out-Null
-    }
-    $torchOut = Test-TorchImport
-}
-if ($torchOut -notmatch 'torch-ok') {
-    Write-Host "修復 (3/3): CPU版PyTorchに切り替えて再試行します... (生成は少し遅くなりますが確実に動きます)" -ForegroundColor Yellow
-    & $venvPy -m pip uninstall -y torch | Out-Null
-    & $venvPy -m pip install "torch==$TorchVer"
-    $torchOut = Test-TorchImport
-}
-if ($torchOut -notmatch 'torch-ok') {
-    Write-Host "修復 (4/4): Visual C++ ランタイムを公式サイトから直接インストールします..." -ForegroundColor Yellow
+    Write-Host "修復 (2/4): Visual C++ ランタイムを公式サイトから直接インストールします..." -ForegroundColor Yellow
     try {
         $vcExe = Join-Path $env:TEMP 'vc_redist.x64.exe'
         Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile $vcExe -UseBasicParsing
         Start-Process $vcExe -ArgumentList '/install','/passive','/norestart' -Wait
         $torchOut = Test-TorchImport
     } catch {
-        Write-Host "(直接インストールに失敗: $($_.Exception.Message))" -ForegroundColor DarkGray
+        Write-Host "(スキップ: $($_.Exception.Message))" -ForegroundColor DarkGray
+    }
+}
+if ($torchOut -notmatch 'torch-ok') {
+    Write-Host "修復 (3/4): Visual C++ ランタイムを winget で再インストールします..." -ForegroundColor Yellow
+    try {
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install -e --id Microsoft.VCRedist.2015+.x64 --accept-source-agreements --accept-package-agreements --force | Out-Null
+        }
+        $torchOut = Test-TorchImport
+    } catch {
+        Write-Host "(スキップ: $($_.Exception.Message))" -ForegroundColor DarkGray
+    }
+}
+if ($torchOut -notmatch 'torch-ok') {
+    Write-Host "修復 (4/4): CPU版PyTorchに切り替えて再試行します..." -ForegroundColor Yellow
+    try {
+        & $venvPy -m pip uninstall -y torch | Out-Null
+        & $venvPy -m pip install "torch==$TorchVer"
+        $torchOut = Test-TorchImport
+    } catch {
+        Write-Host "(スキップ: $($_.Exception.Message))" -ForegroundColor DarkGray
     }
 }
 if ($torchOut -notmatch 'torch-ok') {
@@ -207,6 +217,8 @@ if ($torchOut -notmatch 'torch-ok') {
         & $venvPy -m pip install py-cpuinfo --quiet 2>&1 | Out-Null
         $avx = (& $venvPy -c "import cpuinfo; f=cpuinfo.get_cpu_info().get('flags',[]); print('avx2:', 'avx2' in f)" 2>&1) | Out-String
         Write-Host ("CPU拡張命令 " + $avx.Trim() + $(if ($avx -match 'False') { " ← AVX2非対応CPUではPyTorch公式版は動きません" } else { "" }))
+        $inject = Get-Process -Name 'Nahimic*','SonicStudio*','SonicRadar*','AWCC*','A-Volute*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName -Unique
+        Write-Host ("DLL注入系ソフト: " + $(if ($inject) { ($inject -join ', ') + " ← DLL初期化を壊すことで有名です。一時停止して再実行を試してください" } else { "検出なし" }))
     } catch {}
     $ErrorActionPreference = $eap2
     Write-Host "-------------------------------------------------------------" -ForegroundColor Cyan
