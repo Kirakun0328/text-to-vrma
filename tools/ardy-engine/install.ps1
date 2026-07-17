@@ -113,19 +113,37 @@ if ($hasNvidia) {
     & $venvPy -m pip install torch
 }
 
-# PyTorchが本当に動くか検証 (WinError 1114 = VC++ランタイム不足を自己修復)
-& $venvPy -c "import torch" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "PyTorchの動作確認に失敗。Visual C++ ランタイムを再インストールします..." -ForegroundColor Yellow
+# PyTorchが本当に動くか検証。失敗時は実際のエラーを表示しつつ多段修復:
+#   ① VC++ランタイム再導入 → ② CPU版PyTorchへ切り替え → ③ 案内して停止
+function Test-TorchImport {
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $out = (& $venvPy -c "import torch; print('torch-ok')" 2>&1) | ForEach-Object { "$_" } | Out-String
+    $ErrorActionPreference = $eap
+    return $out
+}
+
+$torchOut = Test-TorchImport
+if ($torchOut -notmatch 'torch-ok') {
+    Write-Host "PyTorchの動作確認に失敗しました。エラー内容:" -ForegroundColor Yellow
+    Write-Host $torchOut.Trim() -ForegroundColor DarkGray
+    Write-Host "修復 (1/2): Visual C++ ランタイムを再インストールします..." -ForegroundColor Yellow
     if ($hasWinget) {
         winget install -e --id Microsoft.VCRedist.2015+.x64 --accept-source-agreements --accept-package-agreements --force | Out-Null
     }
-    & $venvPy -c "import torch" 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        throw ("PyTorchを起動できません。以下を手動でインストール後、再実行してください:`n" +
-               "  Microsoft Visual C++ 再頒布可能パッケージ (x64)`n" +
-               "  https://aka.ms/vs/17/release/vc_redist.x64.exe")
-    }
+    $torchOut = Test-TorchImport
+}
+if ($torchOut -notmatch 'torch-ok') {
+    Write-Host "修復 (2/2): CPU版PyTorchに切り替えて再試行します... (生成は少し遅くなりますが確実に動きます)" -ForegroundColor Yellow
+    & $venvPy -m pip uninstall -y torch | Out-Null
+    & $venvPy -m pip install torch
+    $torchOut = Test-TorchImport
+}
+if ($torchOut -notmatch 'torch-ok') {
+    throw ("PyTorchを起動できませんでした。エラー内容:`n" + $torchOut.Trim() + "`n`n" +
+           "次を手動でインストールしてから再実行してください:`n" +
+           "  Microsoft Visual C++ 再頒布可能パッケージ (x64)`n" +
+           "  https://aka.ms/vs/17/release/vc_redist.x64.exe")
 }
 Write-Host "PyTorch: OK" -ForegroundColor Green
 
@@ -173,8 +191,12 @@ Wait-Exit 0
     Write-Host ""
     Write-Host "エラーが発生しました:" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
+    if ($_.InvocationInfo -and $_.InvocationInfo.ScriptLineNumber) {
+        Write-Host "(スクリプト行: $($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor DarkGray
+    }
     Write-Host ""
-    Write-Host "解決しない場合は GitHub の Issue でお知らせください:"
+    Write-Host "もう一度このセットアップを実行すると、完了済みの手順はスキップして続きから再開します。"
+    Write-Host "解決しない場合は、上のエラー内容を添えて GitHub の Issue でお知らせください:"
     Write-Host "  https://github.com/Kirakun0328/text-to-vrma/issues"
     Wait-Exit 1
 }
