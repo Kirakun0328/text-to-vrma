@@ -240,6 +240,13 @@ your support genuinely keeps this work (and its developer) going 💚
 
 スターを付けてもらえるだけでも大きな励みになります! / Even a ⭐ on this repo means a lot!
 
+## 🙏 コントリビューター / Contributors
+
+- [@emadurandal](https://github.com/emadurandal) — macOS対応 (ARDYエンジンのmacOSインストーラーと起動安定化、[#2](https://github.com/Kirakun0328/text-to-vrma/pull/2))。
+  素晴らしいコントリビュートをありがとうございます!
+
+バグ報告・機能提案・PRを歓迎しています。特にmacOS環境の改善はコミュニティの力が頼りです。
+
 ## 開発者
 
 - X (Twitter): [@Kiratchi0328](https://x.com/Kiratchi0328)
