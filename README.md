@@ -54,6 +54,25 @@ npm run dev
 # → http://localhost:5173 をブラウザで開く
 ```
 
+### Electronデスクトップ版
+
+Node.js 20 以上がインストールされていることを確認し、初回は以下の順番で実行します。
+
+```sh
+git clone https://github.com/Kirakun0328/text-to-vrma.git
+cd text-to-vrma
+npm install
+npm run build
+npm run app:dev
+```
+
+Electron 版は Vite のビルド結果 `dist/index.html` を読み込みます。初回起動時とソースコードの変更後は、必ず `npm run build` を実行してから `npm run app:dev` で起動してください。ビルド後にアプリを再起動するだけなら、`npm run app:dev` のみで起動できます。
+
+Codex サブスクリプション認証を使う場合は、事前に Codex CLI をインストールし、認証と PATH の設定を済ませてください。
+
+> [!NOTE]
+> 現在の `npm run app:build` は Windows Portable 版専用です。macOS 向けの `.app` や `.dmg` は生成しません。
+
 ## 使い方
 
 1. 起動するとサンプルモデル (AvatarSample VRM1.0版) が読み込まれます。
