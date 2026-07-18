@@ -282,6 +282,8 @@ your support genuinely keeps this work (and its developer) going 💚
 
 - [@emadurandal](https://github.com/emadurandal) — macOS対応 (ARDYエンジンのmacOSインストーラーと起動安定化、[#2](https://github.com/Kirakun0328/text-to-vrma/pull/2))。
   素晴らしいコントリビュートをありがとうございます!
+- [@taiyop](https://github.com/taiyop) — Electronデスクトップ版のビルド・起動手順をREADMEに追記 ([#3](https://github.com/Kirakun0328/text-to-vrma/pull/3))。
+  ありがとうございます!
 
 バグ報告・機能提案・PRを歓迎しています。特にmacOS環境の改善はコミュニティの力が頼りです。
 
