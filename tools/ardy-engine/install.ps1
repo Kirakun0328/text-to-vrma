@@ -11,7 +11,9 @@
 #
 # 必要ディスク: 約35GB / 必要RAM: 16GB以上
 param(
-    [string]$EngineRoot = "$env:LOCALAPPDATA\text-to-vrma\ardy-engine"
+    [string]$EngineRoot = "$env:LOCALAPPDATA\text-to-vrma\ardy-engine",
+    # 開発者向け: PyTorch検証まで実行して終了する (モデルDLをスキップ)
+    [switch]$SetupTestOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,22 +42,48 @@ if (-not $hasWinget) {
     Write-Host "  https://www.python.org/downloads/  /  https://git-scm.com/"
 }
 
-# --- 1. Python ---
-$py = $null
-foreach ($cand in @('py -3.12', 'py -3.11', 'py -3.10', 'python')) {
+# --- 1. Python (検証済みバージョンの専用Pythonをエンジンフォルダ内に用意) ---
+# ユーザーのPCに入っているPythonは使わない: 出どころ (Store版/32bit版/conda等) や
+# バージョンの違いが環境依存トラブルの温床になるため、開発環境で検証したのと
+# 完全に同じ構成を全ユーザーに再現する。nuget.org の公式CPython配布を使うので
+# レジストリ・PATH・既存のPython環境には一切触れない (削除もフォルダ削除だけ)
+$PyVer = '3.12.10'
+New-Item -ItemType Directory -Force $EngineRoot | Out-Null
+$privPyDir = Join-Path $EngineRoot 'python'
+$privPy = Join-Path $privPyDir 'tools\python.exe'
+if (-not (Test-Path $privPy)) {
+    Write-Host "[1/5] 専用Python $PyVer を準備しています..." -ForegroundColor Green
     try {
-        $v = Invoke-Expression "$cand --version" 2>$null
-        if ($v -match 'Python 3\.(1[0-9])') { $py = $cand; break }
-    } catch {}
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $pyZip = Join-Path $env:TEMP "python-$PyVer-nuget.zip"
+        Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/python/$PyVer" -OutFile $pyZip -UseBasicParsing
+        Expand-Archive -Path $pyZip -DestinationPath $privPyDir -Force
+        Remove-Item $pyZip -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "専用Pythonの準備に失敗しました ($($_.Exception.Message))。PC内のPythonを探します..." -ForegroundColor Yellow
+    }
 }
-if (-not $py -and $hasWinget) {
-    Write-Host "[1/5] Python 3.12 をインストールしています..." -ForegroundColor Green
-    winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements --disable-interactivity | Out-Null
-    $pyExe = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
-    if (Test-Path $pyExe) { $py = "`"$pyExe`"" }
+$py = $null
+if (Test-Path $privPy) {
+    $py = "`"$privPy`""
+    Write-Host "[1/5] Python: OK (専用 $PyVer)" -ForegroundColor Green
+} else {
+    # フォールバック: 従来通りPC内のPythonを探す / wingetで入れる
+    foreach ($cand in @('py -3.12', 'py -3.11', 'py -3.10', 'python')) {
+        try {
+            $v = Invoke-Expression "$cand --version" 2>$null
+            if ($v -match 'Python 3\.(1[0-9])') { $py = $cand; break }
+        } catch {}
+    }
+    if (-not $py -and $hasWinget) {
+        Write-Host "[1/5] Python 3.12 をインストールしています..." -ForegroundColor Green
+        winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements --disable-interactivity | Out-Null
+        $pyExe = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
+        if (Test-Path $pyExe) { $py = "`"$pyExe`"" }
+    }
+    if (-not $py) { throw "Python 3.10以上をインストールできませんでした。https://www.python.org/ から手動でインストールして再実行してください。" }
+    Write-Host "[1/5] Python: OK ($py)" -ForegroundColor Green
 }
-if (-not $py) { throw "Python 3.10以上をインストールできませんでした。https://www.python.org/ から手動でインストールして再実行してください。" }
-Write-Host "[1/5] Python: OK ($py)" -ForegroundColor Green
 
 # --- 2. Git ---
 $git = 'git'
@@ -99,10 +127,20 @@ $mingwBin = $gxx.DirectoryName
 Write-Host "[3/5] C++ビルドツール: OK" -ForegroundColor Green
 
 # --- 4. Python環境 + ARDY本体 + モデル ---
-New-Item -ItemType Directory -Force $EngineRoot | Out-Null
 $venvPy = Join-Path $EngineRoot 'venv\Scripts\python.exe'
+# 過去のバージョンでPC内のPythonから作られたvenvが残っている場合は、
+# 専用Pythonベースで作り直す (トラブルの再発を防ぐため)
+$venvCfg = Join-Path $EngineRoot 'venv\pyvenv.cfg'
+if ((Test-Path $venvCfg) -and (Test-Path $privPy)) {
+    $venvHome = (Get-Content $venvCfg | Select-String '^home\s*=\s*(.+)$').Matches
+    $isPrivate = $venvHome.Count -gt 0 -and $venvHome[0].Groups[1].Value.Trim().StartsWith($privPyDir)
+    if (-not $isPrivate) {
+        Write-Host "以前のPython環境を専用Pythonで作り直します..." -ForegroundColor Yellow
+        Remove-Item -Recurse -Force (Join-Path $EngineRoot 'venv')
+    }
+}
 if (-not (Test-Path $venvPy)) {
-    Invoke-Expression "$py -m venv `"$EngineRoot\venv`""
+    Invoke-Expression "& $py -m venv `"$EngineRoot\venv`""
 }
 & $venvPy -m pip install --upgrade pip --quiet
 
@@ -219,6 +257,13 @@ if ($torchOut -notmatch 'torch-ok') {
         Write-Host ("CPU拡張命令 " + $avx.Trim() + $(if ($avx -match 'False') { " ← AVX2非対応CPUではPyTorch公式版は動きません" } else { "" }))
         $inject = Get-Process -Name 'Nahimic*','SonicStudio*','SonicRadar*','AWCC*','A-Volute*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName -Unique
         Write-Host ("DLL注入系ソフト: " + $(if ($inject) { ($inject -join ', ') + " ← DLL初期化を壊すことで有名です。一時停止して再実行を試してください" } else { "検出なし" }))
+        try {
+            $aslr = (Get-ProcessMitigation -System -ErrorAction Stop).Aslr
+            $forceAslr = "$($aslr.ForceRelocateImages)"
+            Write-Host ("強制ASLR: " + $(if ($forceAslr -eq 'ON') { "ON ← これが原因の可能性大。Windowsセキュリティ→アプリとブラウザーコントロール→Exploit protectionの設定→「イメージのランダム化を強制する」をオフにして再実行してください" } else { "既定 (問題なし)" }))
+        } catch { Write-Host "強制ASLR: 確認不可" }
+        $avs = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue | Select-Object -ExpandProperty displayName
+        Write-Host ("セキュリティソフト: " + $(if ($avs) { ($avs -join ', ') + $(if ($avs -notmatch 'Defender') { " ← Defender以外が入っている場合、一時停止して再実行を試してください" } else { "" }) } else { "不明" }))
     } catch {}
     $ErrorActionPreference = $eap2
     Write-Host "-------------------------------------------------------------" -ForegroundColor Cyan
@@ -231,6 +276,11 @@ if ($torchOut -notmatch 'torch-ok') {
            "それでも解決しない場合は、上の診断情報とエラー内容を添えてご連絡ください。")
 }
 Write-Host "PyTorch: OK ($TorchVer)" -ForegroundColor Green
+
+if ($SetupTestOnly) {
+    Write-Host "(テストモード: PyTorch検証まで成功。ここで終了します)" -ForegroundColor Cyan
+    exit 0
+}
 
 $ardyRepo = Join-Path $EngineRoot 'ardy'
 if (-not (Test-Path "$ardyRepo\setup.py")) {
