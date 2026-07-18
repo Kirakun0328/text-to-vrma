@@ -334,7 +334,8 @@ $config = @{
 } | ConvertTo-Json
 foreach ($dir in @("$env:APPDATA\text-to-vrma", "$env:APPDATA\Electron")) {
     New-Item -ItemType Directory -Force $dir | Out-Null
-    $config | Out-File -Encoding utf8 (Join-Path $dir 'ardy-engine.json')
+    # BOMなしUTF-8で書く (PS5.1のOut-File utf8はBOM付きになり、アプリ側のJSON.parseが失敗する)
+    [System.IO.File]::WriteAllText((Join-Path $dir 'ardy-engine.json'), $config, (New-Object System.Text.UTF8Encoding $false))
 }
 
 Write-Host ""

@@ -163,10 +163,37 @@ async function setupArdyEngine() {
   try {
     await window.ardyBridge.setup();
     setArdyState(t('ardy.setupStarted'), 'ok');
+    watchArdySetup();
   } catch (e) {
     setArdyState(`❌ ${e.message}`, 'err');
   }
 }
+
+// セットアップ完了の監視: 設定ファイルが書かれたら再起動なしでUIに反映する
+let ardySetupWatchTimer = null;
+function watchArdySetup() {
+  if (ardySetupWatchTimer) clearInterval(ardySetupWatchTimer);
+  ardySetupWatchTimer = setInterval(refreshArdyConfigured, 5000);
+}
+
+async function refreshArdyConfigured() {
+  if (!window.ardyBridge) return;
+  const st = await window.ardyBridge.getStatus().catch(() => null);
+  if (!st?.configured) return;
+  if (ardySetupWatchTimer) { clearInterval(ardySetupWatchTimer); ardySetupWatchTimer = null; }
+  // 「セットアップ」表示のままなら「起動」ボタンに切り替える
+  if (ardyStartBtn.dataset.mode !== 'start') {
+    ardyStartBtn.textContent = t('btn.engineStart');
+    ardyStartBtn.dataset.mode = 'start';
+    ardyStartBtn.classList.remove('hidden');
+    setArdyState(t('ardy.setupDone'), 'ok');
+  }
+}
+
+// 別ウィンドウでセットアップを済ませて戻ってきた時にも反映する
+window.addEventListener('focus', () => {
+  if (ardyStartBtn.dataset.mode === 'setup') refreshArdyConfigured();
+});
 
 // LLM (OpenAI) 生成の進捗バー: ストリーミング受信文字数ベースの%表示
 function startLLMProgressBar() {

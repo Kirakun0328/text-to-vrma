@@ -26,7 +26,8 @@ class ArdyClient {
   readConfig() {
     let config = {};
     try {
-      config = JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
+      // PowerShell (インストーラ) が書いたJSONはBOM付きUTF-8のことがあるため取り除く
+      config = JSON.parse(fs.readFileSync(this.configPath, 'utf-8').replace(/^\uFEFF/, ''));
     } catch {
       // 設定ファイルなし → 環境変数のみ
     }
