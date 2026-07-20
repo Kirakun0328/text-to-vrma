@@ -1,7 +1,7 @@
 {
   "name": "text-to-vrma",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.1.2",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -21,6 +21,8 @@
       "dist/**/*",
       "electron/**/*",
       "tools/ardy-engine/**/*",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
       "!dist/models/*.vrm"
     ],
     "directories": {

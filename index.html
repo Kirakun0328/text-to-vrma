@@ -141,6 +141,31 @@
     .auth-actions { display: flex; gap: 8px; }
     .auth-actions button { flex: 1; padding: 8px; font-size: 12px; }
     .hidden { display: none !important; }
+    #appFooter {
+      margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+      font-size: 11px; color: var(--muted); line-height: 1.6;
+    }
+    #appFooter .llama { color: var(--text); }
+    #appFooter button {
+      background: none; border: none; color: var(--accent); cursor: pointer;
+      font-size: 11px; padding: 0; text-decoration: underline;
+    }
+    #licenseModal {
+      position: fixed; inset: 0; z-index: 200; display: flex;
+      align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.6); padding: 20px;
+    }
+    #licenseModal .box {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+      max-width: 640px; width: 100%; max-height: 80vh; overflow-y: auto; padding: 20px;
+    }
+    #licenseModal h2 { font-size: 15px; margin: 0 0 10px; color: var(--text); }
+    #licenseModal pre {
+      white-space: pre-wrap; word-break: break-word; font-size: 11.5px;
+      line-height: 1.6; color: var(--muted); font-family: inherit; margin: 0 0 14px;
+    }
+    #licenseModal a { color: var(--accent); word-break: break-all; }
+    #licenseModal .close { padding: 8px 16px; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -232,6 +257,20 @@
 
     <div class="section-title" data-i18n="sec.history">生成履歴</div>
     <div id="history"><p class="sub" data-i18n="history.empty">まだ生成したモーションはありません。</p></div>
+
+    <div id="appFooter">
+      <span class="llama">Built with Meta Llama 3</span><br />
+      <span data-i18n="footer.ardy">モーション生成: NVIDIA ARDY</span><br />
+      <button id="licenseBtn" data-i18n="footer.licenses">サードパーティ ライセンス</button>
+    </div>
+  </div>
+
+  <div id="licenseModal" class="hidden">
+    <div class="box">
+      <h2 data-i18n="lic.title">サードパーティ ライセンス</h2>
+      <pre id="licenseText"></pre>
+      <button id="licenseCloseBtn" class="primary-outline close" data-i18n="lic.close">閉じる</button>
+    </div>
   </div>
 
   <div id="viewerWrap">

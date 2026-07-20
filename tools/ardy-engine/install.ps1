@@ -282,10 +282,14 @@ if ($SetupTestOnly) {
     exit 0
 }
 
+# 動作検証済みのコミット/リビジョンに固定する (上流の変更やライセンス改定の影響を受けないため)
+$ArdyCommit = '693f74d13b3d04a0a22ce127ee79c929dd89756b'  # 開発環境で動作検証したコミット
 $ardyRepo = Join-Path $EngineRoot 'ardy'
 if (-not (Test-Path "$ardyRepo\setup.py")) {
-    & $git clone --depth 1 https://github.com/nv-tlabs/ardy.git $ardyRepo
+    & $git clone https://github.com/nv-tlabs/ardy.git $ardyRepo
     if ($LASTEXITCODE -ne 0) { throw "ARDYリポジトリの取得に失敗しました。ネットワークを確認して再実行してください。" }
+    # 特定コミットへ固定 (取得できない場合は最新のまま続行)
+    & $git -C $ardyRepo checkout $ArdyCommit 2>$null
 }
 & $venvPy -m pip install cmake sentencepiece --quiet
 Push-Location $ardyRepo
@@ -295,7 +299,7 @@ Pop-Location
 if ($ardyInstallCode -ne 0) { throw "ARDY本体のインストールに失敗しました。上のエラー内容を確認して再実行してください。" }
 
 Write-Host "[5/5] モデルをダウンロードしています... (約20GB。ここが一番時間がかかります)" -ForegroundColor Green
-& $venvPy -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='nvidia/ARDY-Core-RP-20FPS-Horizon40')"
+& $venvPy -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='nvidia/ARDY-Core-RP-20FPS-Horizon40', revision='abe6c43beb28c867c950acb824b9c4ef3d63fb76')"
 if ($LASTEXITCODE -ne 0) { throw "ARDYモデルのダウンロードに失敗しました。ネットワークとディスク空き容量を確認して再実行してください。" }
 
 # テキストエンコーダーの構築。完了マーカーで成否を管理する:
