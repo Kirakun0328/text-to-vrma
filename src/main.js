@@ -6,6 +6,7 @@ import { buildVRMA } from './vrmaBuilder.js';
 import { idleSpec } from './idleMotion.js';
 import { autoExpressions } from './autoExpressions.js';
 import { appendNeutralEnding } from './specMerge.js';
+import { exportGIF, exportWebM, downloadBlob } from './recorder.js';
 import {
   generateMotionWithOpenAI,
   generateMotionWithCodex,
@@ -18,7 +19,17 @@ const statusEl = $('status');
 const textInput = $('textInput');
 const generateBtn = $('generateBtn');
 const exportBtn = $('exportBtn');
+const gifBtn = $('gifBtn');
+const webmBtn = $('webmBtn');
 const exprCheck = $('exprCheck');
+
+// .vrma保存・録画ボタンの有効/無効をまとめて切り替える。
+// 初めてモーションが用意できた時に「書き出し・共有」セクションを出現させる
+function setExportEnabled(on) {
+  exportBtn.disabled = !on;
+  gifBtn.disabled = !on;
+  webmBtn.disabled = !on;
+}
 const apiKeyInput = $('apiKey');
 const authModeSelect = $('authMode');
 const apiSettings = $('apiSettings');
@@ -34,6 +45,7 @@ const ardyState = $('ardyState');
 const ardyUrlInput = $('ardyUrl');
 const ardyStartBtn = $('ardyStartBtn');
 const ardySetupBtn = $('ardySetupBtn');
+const ardyDurationInput = $('ardyDuration');
 const genProgress = $('genProgress');
 const genProgressBar = $('genProgressBar');
 const genProgressText = $('genProgressText');
@@ -65,9 +77,9 @@ function isLoopFriendly(spec) {
 }
 
 // ARDYモードの経由地 (床クリックで配置、生成リクエストに同送)
-// 個数は無制限。ただし経路の所要時間 (歩速1m/s換算+2秒) が60秒に収まる範囲まで
+// 個数は無制限。ただし経路の所要時間 (歩速1m/s換算+2秒) が安全上限に収まる範囲まで
 const waypoints = [];
-const MAX_MOTION_SECONDS = 60;
+const MAX_MOTION_SECONDS = 300;
 
 function waypointPathSeconds(points) {
   let dist = 0;
@@ -108,14 +120,22 @@ function maskEmail(email) {
   return `${user.slice(0, 2)}***@${domain}`;
 }
 
+const panelEl = $('panel');
+const ardyGptSlot = $('ardyGptSlot');
 function renderAuthMode() {
   const mode = authModeSelect.value;
   const codexMode = mode === 'codex' && Boolean(codexBridge);
   const ardyMode = mode === 'ardy';
-  apiSettings.classList.toggle('hidden', codexMode || ardyMode);
+  // OpenAIキー+モデル選択は、api-keyモード(エンジン本体)でもARDYモード(任意の頭脳)でも使う。
+  // ARDYモードでは同じ要素をARDYパネル内の「GPT (頭)」欄へ移動して見せる
+  if (ardyMode) ardyGptSlot.appendChild(apiSettings);
+  else panelEl.insertBefore(apiSettings, codexSettings);
+  apiSettings.classList.toggle('hidden', codexMode);
   codexSettings.classList.toggle('hidden', !codexMode);
   ardySettings.classList.toggle('hidden', !ardyMode);
-  refineCheck.parentElement.classList.toggle('hidden', ardyMode); // 自己修正はLLMモード専用
+  // 経由地モード (セクション3) はARDYモード専用なので、それ以外では隠す
+  $('waypointRow').classList.toggle('hidden', !ardyMode);
+  refineCheck.parentElement.classList.toggle('hidden', ardyMode); // 自己修正はLLMキーフレーム専用
   if (ardyMode) checkArdyHealth();
 }
 
@@ -312,6 +332,20 @@ async function generateMotionWithArdy(text, { onProgress } = {}) {
     ? { segments: plan.segments.map((s) => ({ text: s.text, duration: s.duration })) }
     : { text };
   if (waypointsActive) body.waypoints = waypoints.map((w) => ({ x: w.x, z: w.z }));
+
+  // 長さの手動指定 (空欄なら自動判定)。指定時は全体をその秒数に合わせる
+  const manualDur = parseFloat(ardyDurationInput.value);
+  if (Number.isFinite(manualDur) && manualDur > 0) {
+    body.duration = manualDur;
+    if (body.segments?.length) {
+      // 複数セグメントは、GPTが割り振った比率を保ったまま合計が指定秒数になるよう按分
+      const durs = body.segments.map((s) => Number(s.duration) || 0);
+      const sum = durs.reduce((a, b) => a + b, 0);
+      body.segments = sum > 0
+        ? body.segments.map((s, i) => ({ ...s, duration: (durs[i] / sum) * manualDur }))
+        : body.segments.map((s) => ({ ...s, duration: manualDur / body.segments.length }));
+    }
+  }
   const spec = await ardyGenerate(body);
   if (plan) spec.originalText = text;
 
@@ -421,13 +455,55 @@ function buildExportVRMA(spec) {
 }
 
 function setStatus(msg, kind = '') {
-  statusEl.textContent = msg;
+  statusEl.textContent = msg || '';
   statusEl.className = kind;
+  statusEl.classList.toggle('hidden', !msg); // 空メッセージのときは枠ごと隠す
 }
 
 // --- ビューア初期化 ---
 const viewer = new Viewer($('canvas'));
 window.__viewer = viewer; // デバッグ・検証用
+
+// --- 再生シークバー (現在の再生秒数の表示・スクラブ) ---
+const playbackBar = $('playbackBar');
+const pbPlayBtn = $('pbPlayBtn');
+const pbTime = $('pbTime');
+const pbDur = $('pbDur');
+const pbSeek = $('pbSeek');
+let pbScrubbing = false;
+let pbPaused = false;
+
+// 待機モーション (呼吸ループ) の時はバーを出さない。実モーション再生時だけ表示する
+function showPlaybackBar(show) {
+  playbackBar.classList.toggle('hidden', !show);
+  if (show) { pbPaused = false; pbPlayBtn.textContent = '⏸'; }
+}
+
+viewer.onFrame = () => {
+  if (pbScrubbing || playbackBar.classList.contains('hidden')) return;
+  const p = viewer.getPlayback();
+  if (!p) return;
+  pbTime.textContent = p.time.toFixed(1);
+  pbDur.textContent = p.duration.toFixed(1);
+  pbSeek.value = String(Math.round((p.time / p.duration) * 1000));
+};
+
+pbPlayBtn.addEventListener('click', () => {
+  pbPaused = !pbPaused;
+  viewer.setPaused(pbPaused);
+  pbPlayBtn.textContent = pbPaused ? '▶' : '⏸';
+});
+pbSeek.addEventListener('pointerdown', () => { pbScrubbing = true; });
+pbSeek.addEventListener('input', () => {
+  const p = viewer.getPlayback();
+  if (!p) return;
+  const time = (Number(pbSeek.value) / 1000) * p.duration;
+  pbTime.textContent = time.toFixed(1);
+  viewer.seek(time);
+});
+const endScrub = () => { pbScrubbing = false; };
+pbSeek.addEventListener('pointerup', endScrub);
+pbSeek.addEventListener('pointercancel', endScrub);
 // 起動時の読み込み優先順: VRoidサンプル VRM1.0 → VRM0.0
 const DEFAULT_MODEL_URLS = [
   '/models/AvatarSample_VRM1.0.vrm',
@@ -441,7 +517,7 @@ async function init() {
       await viewer.loadVRM(url);
       const name = url.split('/').pop();
       vrmName.textContent = t('vrm.replaced', { name });
-      setStatus(t('ready'), 'ok');
+      setStatus(''); // 「準備完了…」は出さない (枠ごと非表示)
       await playSpec(idleSpec(), { silent: true });
       return;
     } catch { /* 次の候補へ */ }
@@ -458,7 +534,8 @@ async function playSpec(spec, { silent = false, seek = 0 } = {}) {
   const buffer = buildVRMA(spec);
   await viewer.playVRMA(buffer, spec.loop ?? true, seek);
   lastVRMA = { spec, name: spec.name || 'motion' };
-  exportBtn.disabled = false;
+  setExportEnabled(true);
+  showPlaybackBar(!silent); // 待機モーション (silent) 以外は再生バーを表示
   if (!silent) {
     setStatus(
       t('playing', { name: spec.name, dur: spec.duration.toFixed(1), loop: spec.loop ? t('loop.yes') : t('loop.no') }),
@@ -483,7 +560,8 @@ async function playHistoryItem(item) {
   try {
     await viewer.playVRMA(item.buffer.slice(0), item.loop);
     lastVRMA = { spec: item.spec, name: item.name };
-    exportBtn.disabled = false;
+    setExportEnabled(true);
+    showPlaybackBar(true);
     setStatus(t('playing.hist', { name: item.name, text: item.text }), 'ok');
   } catch (e) {
     console.error(e);
@@ -493,6 +571,7 @@ async function playHistoryItem(item) {
 
 function renderHistory() {
   historyEl.innerHTML = '';
+  $('clearHistoryBtn').classList.toggle('hidden', history.length === 0);
   if (history.length === 0) {
     historyEl.innerHTML = `<p class="sub">${t('history.empty')}</p>`;
     return;
@@ -521,6 +600,16 @@ function renderHistory() {
     save.title = t('hist.save');
     save.addEventListener('click', () => downloadVRMA(item));
 
+    const gif = document.createElement('button');
+    gif.textContent = '🎞';
+    gif.title = t('hist.gif');
+    gif.addEventListener('click', () => exportHistoryItem(item, 'gif'));
+
+    const webm = document.createElement('button');
+    webm.textContent = '🎬';
+    webm.title = t('hist.webm');
+    webm.addEventListener('click', () => exportHistoryItem(item, 'webm'));
+
     const copy = document.createElement('button');
     copy.textContent = '📋';
     copy.title = t('hist.copy');
@@ -538,7 +627,7 @@ function renderHistory() {
       renderHistory();
     });
 
-    row.append(play, name, meta, save, copy, del);
+    row.append(play, name, meta, save, gif, webm, copy, del);
     historyEl.appendChild(row);
   }
 }
@@ -662,6 +751,121 @@ exportBtn.addEventListener('click', () => {
   setStatus(t('vrma.saved', { name: lastVRMA.name, note: exprNote }), 'ok');
 });
 
+// --- GIF / 動画(WebM) 書き出し (共有用) ---
+const GIF_MAX_SECONDS = 12; // 長すぎるとファイルが肥大するためGIFは先頭12秒まで
+let recording = false;
+
+// バイト数を KB / MB / GB へ読みやすく整形する
+function formatBytes(n) {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)}GB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(n / 1024))}KB`;
+}
+
+function recordDuration() {
+  const p = viewer.getPlayback();
+  return p?.duration || lastVRMA?.spec?.duration || 3;
+}
+
+async function runExport(kind) {
+  if (!lastVRMA || recording) return;
+  recording = true;
+  setExportEnabled(false);
+  generateBtn.disabled = true;
+  const wasPaused = viewer.getPlayback() && !viewer.getPlayback().running;
+  try {
+    const fullDur = recordDuration();
+    const bar = startRecordProgress();
+    let blob, ext;
+    if (kind === 'gif') {
+      const dur = Math.min(fullDur, GIF_MAX_SECONDS);
+      if (fullDur > GIF_MAX_SECONDS) setStatus(t('rec.gifClip', { s: GIF_MAX_SECONDS }));
+      viewer.setRenderLoop(false); // コマ送りに専念 (裏ループとの競合防止)
+      try {
+        blob = await exportGIF(viewer, { duration: dur, onProgress: bar.update });
+      } finally {
+        viewer.setRenderLoop(true);
+      }
+      ext = 'gif';
+    } else {
+      blob = await exportWebM(viewer, { duration: fullDur, onProgress: bar.update });
+      ext = 'webm';
+    }
+    bar.done();
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    downloadBlob(blob, `${lastVRMA.name || 'motion'}_${stamp}.${ext}`);
+    setStatus(t('rec.done', { ext: ext.toUpperCase(), size: formatBytes(blob.size) }), 'ok');
+  } catch (e) {
+    console.error(e);
+    setStatus(t('error', { msg: e.message }), 'err');
+  } finally {
+    recording = false;
+    setExportEnabled(true);
+    generateBtn.disabled = false;
+    // 書き出し後は先頭から再生を続ける (GIFのコマ送りで止まった状態を解消)
+    viewer.seek(0);
+    viewer.setPaused(Boolean(wasPaused));
+  }
+}
+
+// 書き出し進捗バー (生成用の進捗バーを流用)
+function startRecordProgress() {
+  genProgressBar.style.width = '0%';
+  genProgressText.textContent = t('rec.working');
+  genProgress.classList.remove('hidden');
+  return {
+    update(fraction) {
+      genProgressBar.style.width = `${Math.round(fraction * 100)}%`;
+      genProgressText.textContent = t('rec.workingPct', { pct: Math.round(fraction * 100) });
+    },
+    done() {
+      genProgressBar.style.width = '100%';
+      setTimeout(() => genProgress.classList.add('hidden'), 400);
+    },
+  };
+}
+
+gifBtn.addEventListener('click', () => runExport('gif'));
+webmBtn.addEventListener('click', () => runExport('webm'));
+
+// 履歴項目の書き出し: いったんその項目を再生してから書き出す
+async function exportHistoryItem(item, kind) {
+  if (recording) return;
+  await playHistoryItem(item);
+  await runExport(kind);
+}
+
+// --- 背景切り替え (標準 / 単色: 全色から自由に指定) ---
+const bgSelect = $('bgSelect');
+const bgColor = $('bgColor');
+bgSelect.value = localStorage.getItem('bg-mode') || 'default';
+bgColor.value = localStorage.getItem('bg-color') || '#00b140';
+function applyBackground() {
+  viewer.setBackground(bgSelect.value, bgColor.value);
+  localStorage.setItem('bg-mode', bgSelect.value);
+  localStorage.setItem('bg-color', bgColor.value);
+}
+applyBackground();
+bgSelect.addEventListener('change', applyBackground);
+// 色を選んだら自動で「単色」モードに切り替える
+bgColor.addEventListener('input', () => {
+  if (bgSelect.value !== 'solid') bgSelect.value = 'solid';
+  applyBackground();
+});
+
+// --- 3Dプレビュー: カメラリセット / フルスクリーン ---
+$('camResetBtn').addEventListener('click', () => viewer.resetCamera());
+$('fullscreenBtn').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else viewerWrap.requestFullscreen?.();
+});
+
+// --- 履歴クリア ---
+$('clearHistoryBtn').addEventListener('click', () => {
+  history.length = 0;
+  renderHistory();
+});
+
 // --- VRMアップロード ---
 async function loadVRMFile(file) {
   if (!file || !/\.vrm$/i.test(file.name)) {
@@ -695,6 +899,7 @@ async function loadVRMAFile(file) {
     setStatus(t('file.loading', { name: file.name }));
     const buf = await file.arrayBuffer();
     await viewer.playVRMA(buf, true);
+    showPlaybackBar(true);
     setStatus(t('file.playing', { name: file.name }), 'ok');
   } catch (e) {
     console.error(e);
@@ -820,6 +1025,12 @@ viewerWrap.addEventListener('click', (e) => {
   if (!waypointCheck.checked || authModeSelect.value !== 'ardy') return;
   if (generateBtn.disabled) {
     setStatus(t('wp.locked'), 'err');
+    return;
+  }
+  // モーション再生中は床クリック(経由地配置)を無効にする (待機モーションは除く)
+  const pb = viewer.getPlayback();
+  if (pb?.running && !$('playbackBar').classList.contains('hidden')) {
+    setStatus(t('wp.playing'), 'err');
     return;
   }
   if (pointerDownAt && Math.hypot(e.clientX - pointerDownAt.x, e.clientY - pointerDownAt.y) > 5) return;

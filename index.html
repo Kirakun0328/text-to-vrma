@@ -8,260 +8,420 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
-      --bg: #12141a;
-      --panel: #1c1f28;
-      --panel2: #242836;
-      --border: #323848;
-      --text: #e8eaf0;
-      --muted: #9aa2b5;
-      --accent: #6ee7a0;
-      --accent2: #4cc2ff;
+      --bg: #0a0d16;
+      --panel: #0d111b;
+      --card: #141a29;
+      --card2: #1b2232;
+      --border: #273149;
+      --text: #e9edf6;
+      --muted: #8891a6;
+      --accent: #34d17a;
+      --blue: #4c9aff;
+      --purple: #a879ff;
+      --orange: #ff9d4c;
     }
     body {
       font-family: "Hiragino Sans", "Yu Gothic UI", "Segoe UI", sans-serif;
       background: var(--bg); color: var(--text);
       height: 100vh; display: flex; overflow: hidden;
     }
+    #app { display: flex; width: 100%; height: 100%; }
+
+    /* ---------- サイドバー ---------- */
     #panel {
-      width: 340px; min-width: 340px; padding: 18px;
+      width: 430px; min-width: 430px; padding: 16px; gap: 11px;
       background: var(--panel); border-right: 1px solid var(--border);
-      display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+      display: flex; flex-direction: column; overflow-y: auto;
     }
-    /* 履歴が増えても入力欄などが押し潰されないようにする */
     #panel > * { flex-shrink: 0; }
-    h1 { font-size: 17px; letter-spacing: 0.02em; }
-    h1 span { color: var(--accent); }
-    #langSelect {
-      float: right; font-size: 11px; padding: 2px 4px;
-      background: #1a1e27; color: #c6cbd6; border: 1px solid #2a3040; border-radius: 6px;
+    header.app-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .app-head { flex-wrap: nowrap; }
+    .brand { font-size: 19px; font-weight: 700; letter-spacing: 0.01em; white-space: nowrap; }
+    .brand .accent { color: var(--accent); }
+    select.lang {
+      width: auto; flex: none; padding: 8px 9px; font-size: 12.5px; white-space: nowrap;
+      background: var(--card2); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
     }
+    .tagline { font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: -4px; }
+
+    /* ---------- カード ---------- */
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 13px; display: flex; flex-direction: column; gap: 9px;
+    }
+    .card-head { display: flex; align-items: flex-start; gap: 9px; }
+    .badge {
+      width: 23px; height: 23px; min-width: 23px; border-radius: 50%;
+      display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #0a0d16;
+    }
+    .badge.b1 { background: linear-gradient(135deg, #56a8ff, #4c9aff); }
+    .badge.b2 { background: linear-gradient(135deg, #b98bff, #a879ff); }
+    .badge.b3 { background: linear-gradient(135deg, #4fe0a0, #34d17a); }
+    .badge.b4 { background: linear-gradient(135deg, #ffb15c, #ff9d4c); }
+    .card-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+    .card-sub { font-size: 10.5px; color: var(--muted); line-height: 1.45; margin-top: 1px; }
+
+    /* ---------- 汎用フォーム ---------- */
     .sub { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+    input[type="password"], input[type="text"], input[type="number"], select, textarea {
+      width: 100%; background: var(--card2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 9px; font-family: inherit;
+    }
+    input[type="password"], input[type="text"], input[type="number"], select { padding: 9px 10px; font-size: 12.5px; }
+    select:focus, input:focus, textarea:focus { outline: none; border-color: var(--blue); }
     textarea {
-      width: 100%; height: 84px; resize: vertical;
-      background: var(--panel2); color: var(--text);
-      border: 1px solid var(--border); border-radius: 8px;
-      padding: 10px; font-size: 14px; font-family: inherit;
+      height: 92px; resize: vertical; padding: 11px; font-size: 14px; line-height: 1.5;
     }
-    textarea:focus { outline: 1px solid var(--accent2); }
     button {
-      border: none; border-radius: 8px; padding: 10px 14px;
-      font-size: 14px; font-weight: 600; cursor: pointer;
-      font-family: inherit; transition: filter 0.15s;
+      border: none; border-radius: 9px; padding: 10px 14px; font-size: 13px; font-weight: 600;
+      cursor: pointer; font-family: inherit; transition: filter 0.15s, background 0.15s;
     }
-    button:hover { filter: brightness(1.12); }
-    button:disabled { opacity: 0.45; cursor: default; }
-    #generateBtn { background: var(--accent); color: #10231a; }
+    button:hover:not(:disabled) { filter: brightness(1.12); }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .btn-soft { background: var(--card2); color: var(--text); border: 1px solid var(--border); }
+    .btn-blue { background: var(--card2); color: var(--blue); border: 1px solid rgba(76,154,255,0.5); }
+    .btn-purple { background: var(--card2); color: var(--purple); border: 1px solid rgba(168,121,255,0.5); }
     .row { display: flex; gap: 8px; }
-    .row button { flex: 1; }
-    #exportBtn { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+    .row > * { flex: 1; }
+    label.check {
+      font-size: 12px; color: var(--muted); display: flex; gap: 7px; align-items: center; cursor: pointer;
+    }
+    label.check input { width: 15px; height: 15px; accent-color: var(--accent); }
+    .inline { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--muted); }
+    .inline select, .inline input[type="number"] { width: auto; flex: none; }
+    .inline input[type="number"] { width: 96px; }
+
+    /* VRMドロップゾーン */
+    .dropzone {
+      border: 1.5px dashed var(--border); border-radius: 11px; padding: 10px;
+      display: flex; flex-direction: column; gap: 7px; align-items: center; text-align: center;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .dropzone .sub { font-size: 11px; }
+    #vrmBtn { background: linear-gradient(135deg, rgba(76,154,255,0.16), rgba(168,121,255,0.16)); color: var(--blue); border: 1px solid rgba(76,154,255,0.5); width: 100%; padding: 9px; }
+
+    /* エンジン */
+    .engine-top { display: flex; gap: 8px; align-items: center; }
+    .engine-top select { flex: 1; }
+    .pill { padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .pill.ok { background: rgba(52,209,122,0.14); color: var(--accent); border: 1px solid rgba(52,209,122,0.4); }
+    .auth-box { display: flex; flex-direction: column; gap: 9px; }
+    .auth-state { font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+    .auth-state.ok { color: var(--accent); }
+    .auth-state.err { color: #ff8484; }
+    .auth-actions { display: flex; gap: 8px; }
+    .auth-actions button { flex: 1; }
+    .section-sub { font-size: 11.5px; font-weight: 600; color: var(--text); }
+    .ardy-fold > summary { cursor: pointer; list-style: none; font-size: 12px; color: var(--muted); }
+    .ardy-fold > summary::-webkit-details-marker { display: none; }
+    .ardy-fold[open] > summary { margin-bottom: 8px; }
+
+    /* 例チップ */
+    .chips-label { font-size: 11px; color: var(--muted); }
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip {
+      background: var(--card2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 500;
+    }
+    .chip:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* 生成ボタン */
+    #generateBtn {
+      background: linear-gradient(135deg, #3ee089, var(--accent)); color: #08351f;
+      display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 13px;
+      font-size: 15px; font-weight: 700;
+    }
+    #generateBtn small { font-size: 11px; font-weight: 500; opacity: 0.8; }
+    .gen-progress-track { height: 8px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.08); }
+    .gen-progress-bar { height: 100%; width: 0%; background: var(--accent); border-radius: 4px; transition: width 0.4s ease; }
+
+    /* 出力セクション */
+    #exportBtn { background: var(--card2); color: var(--text); border: 1px solid var(--border); }
+    #exportBtn, #gifBtn, #webmBtn { white-space: nowrap; }
+
+    /* ステータス */
     #status {
       font-size: 12.5px; line-height: 1.6; color: var(--muted);
-      background: var(--panel2); border-radius: 8px; padding: 10px;
-      min-height: 58px; white-space: pre-wrap;
+      background: var(--card2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 11px; white-space: pre-wrap;
     }
     #status.ok { color: var(--accent); }
     #status.err { color: #ff8484; }
-    input[type="password"], input[type="text"], select {
-      width: 100%; padding: 8px;
-      background: var(--panel2); border: 1px solid var(--border);
-      border-radius: 6px; color: var(--text); font-size: 12.5px;
-      font-family: inherit;
-    }
-    label.check {
-      font-size: 12px; color: var(--muted); display: flex; gap: 6px;
-      align-items: center; cursor: pointer;
-    }
-    button.primary-outline {
-      background: var(--panel2); color: var(--accent2);
-      border: 1.5px solid var(--accent2); font-weight: 600; font-size: 14px;
-    }
-    #viewerWrap.dragover::after {
-      content: 'VRMファイルをドロップして読み込み';
-      position: absolute; inset: 12px; display: flex;
-      align-items: center; justify-content: center;
-      border: 2px dashed var(--accent2); border-radius: 12px;
-      background: rgba(76, 194, 255, 0.08); color: var(--accent2);
-      font-size: 16px; pointer-events: none;
-    }
-    #history {
-      display: flex; flex-direction: column; gap: 6px;
-      max-height: 260px; overflow-y: auto;
-    }
+
+    /* 履歴 */
+    .head-row { display: flex; align-items: center; justify-content: space-between; }
+    #clearHistoryBtn { background: none; color: var(--muted); font-size: 11.5px; padding: 4px 6px; }
+    #clearHistoryBtn:hover { color: #ff8484; }
+    #history { display: flex; flex-direction: column; gap: 7px; max-height: 240px; overflow-y: auto; }
     .hist-item {
-      display: flex; align-items: center; gap: 8px;
-      background: var(--panel2); border: 1px solid var(--border);
-      border-radius: 8px; padding: 7px 10px; font-size: 12.5px;
+      display: flex; align-items: center; gap: 8px; background: var(--card2);
+      border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; font-size: 12.5px;
     }
-    .hist-item .name {
-      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      color: var(--text);
-    }
+    .hist-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
     .hist-item .meta { color: var(--muted); font-size: 11px; }
-    .hist-item button {
-      padding: 4px 9px; font-size: 12px; border-radius: 6px;
-      background: var(--panel); color: var(--text); border: 1px solid var(--border);
-    }
+    .hist-item button { padding: 4px 9px; font-size: 12px; border-radius: 6px; background: var(--card); color: var(--text); border: 1px solid var(--border); }
     .hist-item button.play { color: var(--accent); border-color: var(--accent); }
-    #viewerWrap { flex: 1; position: relative; }
-    #updateBanner {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      background: #1d2733; color: var(--accent); text-align: center;
-      padding: 8px 12px; font-size: 13px;
-      border-bottom: 1px solid rgba(74, 222, 128, 0.4);
+
+    #appFooter { padding-top: 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); line-height: 1.7; }
+    #appFooter .llama { color: var(--text); }
+    #appFooter button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px; padding: 0; text-decoration: underline; }
+
+    /* ---------- 3Dプレビュー ---------- */
+    #viewerWrap { flex: 1; position: relative; background: #0d1119; }
+    .viewer-head {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; pointer-events: none;
     }
-    #updateBanner a { color: var(--accent); font-weight: bold; }
-    #updateBanner button {
-      background: none; border: none; color: #8b93a5; cursor: pointer;
-      font-size: 14px; margin-left: 12px;
-    }
-    #waypointGuide {
-      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
-      background: rgba(18, 20, 26, 0.85); color: var(--accent);
-      padding: 6px 14px; border-radius: 8px; font-size: 12px;
-      border: 1px solid rgba(74, 222, 128, 0.4); pointer-events: none;
-      white-space: nowrap;
+    .viewer-title { font-size: 14px; font-weight: 700; padding-left: 10px; border-left: 3px solid var(--accent); }
+    .viewer-actions { display: flex; gap: 8px; pointer-events: auto; }
+    .viewer-actions button {
+      background: rgba(20,26,41,0.8); backdrop-filter: blur(4px); color: var(--text);
+      border: 1px solid var(--border); font-size: 12px; padding: 8px 12px;
     }
     canvas { display: block; width: 100%; height: 100%; }
-    .section-title { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; }
-    .auth-box { display: flex; flex-direction: column; gap: 8px; }
-    .auth-state {
-      font-size: 11.5px; line-height: 1.5; color: var(--muted);
-      border-left: 2px solid var(--border); padding-left: 8px;
+    #viewerWrap.dragover::after {
+      content: 'VRMファイルをドロップして読み込み';
+      position: absolute; inset: 14px; display: flex; align-items: center; justify-content: center;
+      border: 2px dashed var(--blue); border-radius: 14px; background: rgba(76,154,255,0.08);
+      color: var(--blue); font-size: 17px; pointer-events: none; z-index: 20;
     }
-    .auth-state.ok { color: var(--accent); border-color: var(--accent); }
-    .auth-state.err { color: #ff8484; border-color: #ff8484; }
-    .gen-progress-track {
-      height: 8px; border-radius: 4px; overflow: hidden;
-      background: rgba(255, 255, 255, 0.08); margin-top: 8px;
+    #waypointGuide {
+      position: absolute; top: 58px; left: 50%; transform: translateX(-50%);
+      background: rgba(13,17,25,0.9); color: var(--accent); padding: 6px 14px; border-radius: 8px;
+      font-size: 12px; border: 1px solid rgba(52,209,122,0.4); pointer-events: none; white-space: nowrap; z-index: 10;
     }
-    .gen-progress-bar {
-      height: 100%; width: 0%; background: var(--accent);
-      border-radius: 4px; transition: width 0.4s ease;
+    #playbackBar {
+      position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 10px; width: min(540px, 74%);
+      background: rgba(13,17,25,0.86); backdrop-filter: blur(4px);
+      border: 1px solid var(--border); border-radius: 10px; padding: 8px 14px; z-index: 10;
     }
-    .auth-actions { display: flex; gap: 8px; }
-    .auth-actions button { flex: 1; padding: 8px; font-size: 12px; }
-    .hidden { display: none !important; }
-    #appFooter {
-      margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
-      font-size: 11px; color: var(--muted); line-height: 1.6;
+    #playbackBar .pb-time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
+    #pbPlayBtn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 15px; padding: 0; width: 22px; }
+    #pbSeek { flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px; }
+
+    /* 下部ビューバー */
+    .viewer-bar {
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+      display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+      padding: 12px 18px; background: rgba(13,17,25,0.9); backdrop-filter: blur(6px);
+      border-top: 1px solid var(--border);
     }
-    #appFooter .llama { color: var(--text); }
-    #appFooter button {
-      background: none; border: none; color: var(--accent); cursor: pointer;
-      font-size: 11px; padding: 0; text-decoration: underline;
+    .viewer-bar .grp { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+    .viewer-bar .grp > span.lbl { font-weight: 600; color: var(--text); }
+    .viewer-bar select { width: auto; padding: 7px 9px; }
+    .viewer-bar input[type="color"] { width: 32px; height: 28px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--card2); cursor: pointer; }
+    .light-btns { display: flex; gap: 4px; }
+    .light-btns button {
+      width: 30px; height: 28px; padding: 0; font-size: 13px; background: var(--card2);
+      color: var(--muted); border: 1px solid var(--border);
     }
-    #licenseModal {
-      position: fixed; inset: 0; z-index: 200; display: flex;
-      align-items: center; justify-content: center;
-      background: rgba(0, 0, 0, 0.6); padding: 20px;
-    }
-    #licenseModal .box {
-      background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-      max-width: 640px; width: 100%; max-height: 80vh; overflow-y: auto; padding: 20px;
-    }
-    #licenseModal h2 { font-size: 15px; margin: 0 0 10px; color: var(--text); }
-    #licenseModal pre {
-      white-space: pre-wrap; word-break: break-word; font-size: 11.5px;
-      line-height: 1.6; color: var(--muted); font-family: inherit; margin: 0 0 14px;
-    }
-    #licenseModal a { color: var(--accent); word-break: break-all; }
+    .light-btns button.active { color: var(--accent); border-color: var(--accent); }
+    .viewer-bar label.check { color: var(--muted); }
+
+    /* ライセンスモーダル */
+    #licenseModal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
+    #licenseModal .box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; max-width: 640px; width: 100%; max-height: 80vh; overflow-y: auto; padding: 20px; }
+    #licenseModal h2 { font-size: 15px; margin: 0 0 10px; }
+    #licenseModal pre { white-space: pre-wrap; word-break: break-word; font-size: 11.5px; line-height: 1.6; color: var(--muted); font-family: inherit; margin: 0 0 14px; }
     #licenseModal .close { padding: 8px 16px; font-size: 12px; }
+
+    #updateBanner {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 300; text-align: center;
+      background: #14233a; color: var(--accent); padding: 8px 12px; font-size: 13px;
+      border-bottom: 1px solid rgba(52,209,122,0.4);
+    }
+    #updateBanner a { color: var(--accent); font-weight: bold; }
+    #updateBanner button { background: none; border: none; color: #8b93a5; cursor: pointer; font-size: 14px; margin-left: 12px; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div id="panel">
-    <h1>Text <span>To</span> VRMA
-      <select id="langSelect" title="Language">
-        <option value="ja">日本語</option>
-        <option value="en">English</option>
-        <option value="zh">中文</option>
-        <option value="ko">한국어</option>
-      </select>
-    </h1>
-    <p class="sub" data-i18n="tagline">テキストからVRMアニメーション (.vrma) を生成して、その場でキャラクターを動かします。</p>
+  <div id="app">
+    <div id="panel">
+      <header class="app-head">
+        <div class="brand">Text <span class="accent">To</span> VRMA</div>
+        <select id="langSelect" class="lang" title="Language">
+          <option value="ja">🌐 日本語</option>
+          <option value="en">🌐 English</option>
+          <option value="zh">🌐 中文</option>
+          <option value="ko">🌐 한국어</option>
+        </select>
+      </header>
+      <p class="tagline" data-i18n="tagline">テキストからVRMアニメーション (.vrma) を生成して、その場でキャラクターを動かします。</p>
 
-    <div class="section-title" data-i18n="sec.model">1. VRMモデル</div>
-    <button id="vrmBtn" class="primary-outline" data-i18n="btn.openVrm">📂 VRMファイルを開く</button>
-    <input type="file" id="vrmFile" accept=".vrm" style="display:none" />
-    <p class="sub" id="vrmName" data-i18n="vrm.initial">読み込み中... — 3Dビューへのドラッグ&amp;ドロップでも読み込めます。</p>
+      <!-- 1. VRMモデル -->
+      <section class="card">
+        <div class="card-head">
+          <span class="badge b1">1</span>
+          <div><div class="card-title" data-i18n="sec.model">🧊 VRMモデル</div>
+          <div class="card-sub" data-i18n="sec.modelSub">アバターのVRMファイルを読み込みます。</div></div>
+        </div>
+        <div class="dropzone">
+          <button id="vrmBtn" data-i18n="btn.openVrm">📂 VRMファイルを開く</button>
+          <p class="sub" id="vrmName" data-i18n="vrm.initial">.vrm ファイルをドラッグ&amp;ドロップしても読み込めます</p>
+        </div>
+        <input type="file" id="vrmFile" accept=".vrm" style="display:none" />
+      </section>
 
-    <div class="section-title" data-i18n="sec.engine">2. 🤖 生成エンジン</div>
-    <select id="authMode">
-      <option value="api-key" data-i18n="engine.apiKey">OpenAI APIキー</option>
-      <option value="codex" data-i18n="engine.codex">Codexサブスクリプション</option>
-      <option value="ardy" data-i18n="engine.ardy">ARDYローカルエンジン</option>
-    </select>
-    <div id="apiSettings" class="auth-box">
-      <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" data-i18n-placeholder="apiKey.ph" />
-      <select id="apiModelSelect">
-        <option value="gpt-5.6-sol" data-i18n="model.best">gpt-5.6-sol (最高精度)</option>
-        <option value="gpt-5.6-terra" data-i18n="model.balanced">gpt-5.6-terra (バランス)</option>
-        <option value="gpt-5.6-luna" data-i18n="model.low">gpt-5.6-luna (低コスト)</option>
-      </select>
-    </div>
-    <div id="codexSettings" class="auth-box hidden">
-      <div id="codexAuthState" class="auth-state" data-i18n="codex.checking">Codex CLIを確認中...</div>
-      <select id="codexModelSelect" disabled>
-        <option value="" data-i18n="codex.afterLogin">ログイン後にモデルを取得します</option>
-      </select>
-      <div class="auth-actions">
-        <button id="codexLoginBtn" class="primary-outline" data-i18n="btn.codexLogin">ChatGPTでログイン</button>
-        <button id="codexLogoutBtn" disabled data-i18n="btn.codexLogout">ログアウト</button>
+      <!-- 2. 生成エンジン -->
+      <section class="card">
+        <div class="card-head">
+          <span class="badge b2">2</span>
+          <div><div class="card-title" data-i18n="sec.engine">⚙️ 生成エンジン</div>
+          <div class="card-sub" data-i18n="sec.engineSub">モーション生成に使用するエンジンを選択します。</div></div>
+        </div>
+        <div class="engine-top">
+          <select id="authMode">
+            <option value="api-key" data-i18n="engine.apiKey">OpenAI APIキー</option>
+            <option value="codex" data-i18n="engine.codex">Codexサブスクリプション</option>
+            <option value="ardy" data-i18n="engine.ardy">ARDYローカルエンジン</option>
+          </select>
+        </div>
+        <div id="apiSettings" class="auth-box">
+          <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" data-i18n-placeholder="apiKey.ph" />
+          <select id="apiModelSelect">
+            <option value="gpt-5.6-sol" data-i18n="model.best">gpt-5.6-sol (最高精度)</option>
+            <option value="gpt-5.6-terra" data-i18n="model.balanced">gpt-5.6-terra (バランス)</option>
+            <option value="gpt-5.6-luna" data-i18n="model.low">gpt-5.6-luna (低コスト)</option>
+          </select>
+        </div>
+        <div id="codexSettings" class="auth-box hidden">
+          <div id="codexAuthState" class="auth-state" data-i18n="codex.checking">Codex CLIを確認中...</div>
+          <select id="codexModelSelect" disabled>
+            <option value="" data-i18n="codex.afterLogin">ログイン後にモデルを取得します</option>
+          </select>
+          <div class="auth-actions">
+            <button id="codexLoginBtn" class="btn-blue" data-i18n="btn.codexLogin">ChatGPTでログイン</button>
+            <button id="codexLogoutBtn" class="btn-soft" disabled data-i18n="btn.codexLogout">ログアウト</button>
+          </div>
+        </div>
+        <div id="ardySettings" class="auth-box hidden">
+          <div class="engine-top">
+            <div id="ardyState" class="auth-state" style="flex:1" data-i18n="ardy.unknown">エンジン未確認</div>
+          </div>
+          <div class="auth-actions">
+            <button id="ardyStartBtn" class="btn-blue hidden" data-i18n="btn.engineStart">エンジンを起動</button>
+            <button id="ardySetupBtn" class="btn-soft hidden" data-i18n="btn.engineSetup">⬇ エンジンをセットアップ (初回のみ)</button>
+          </div>
+          <div class="inline" title="生成するモーションの長さ (秒)。空欄なら内容から自動判定します。" data-i18n-title="ardy.durTitle">
+            <span data-i18n="ardy.durLabel">⏱ 長さ (秒)</span>
+            <input type="number" id="ardyDuration" min="0.1" step="0.1" placeholder="自動" data-i18n-placeholder="ardy.durAuto" />
+          </div>
+          <details class="ardy-fold">
+            <summary class="section-sub" data-i18n="ardy.gptHead">🧠 GPT (頭) — 任意 (精度アップ)</summary>
+            <p class="sub" style="margin:6px 0" data-i18n="ardy.gptNote">OpenAI APIキーを入れると、GPTが日本語の解釈と複雑な指示の分割を担当して精度が上がります。空欄でもローカル翻訳で動作します。</p>
+            <div id="ardyGptSlot"></div>
+          </details>
+        </div>
+        <label class="check" title="生成後にもう1パス、可動域・軌道・緩急のセルフレビューを行って品質を上げます。時間とAPIコストは約2倍になります。" data-i18n-title="refine.title">
+          <input type="checkbox" id="refineCheck" checked />
+          <span data-i18n="refine.label">🔍 自己修正 (2パス生成で品質向上)</span>
+        </label>
+      </section>
+
+      <!-- 3. テキスト指示 -->
+      <section class="card">
+        <div class="card-head">
+          <span class="badge b3">3</span>
+          <div><div class="card-title" data-i18n="sec.text">💬 モーションをテキストで指示</div>
+          <div class="card-sub" data-i18n="sec.textSub">どんな動きをするか、自由に指示してください。</div></div>
+        </div>
+        <textarea id="textInput" placeholder="例: その場で歩く&#10;例: 喜んでジャンプする&#10;例: 手を振る&#10;例: 悲しそうにうつむく" data-i18n-placeholder="input.ph"></textarea>
+        <div id="waypointRow" class="hidden">
+          <label class="check" title="ONにすると3Dビューの床をクリックして経由地を置けます。右クリックで1つ取り消し。" data-i18n-title="wp.labelTitle">
+            <input type="checkbox" id="waypointCheck" /> <span data-i18n="wp.label">📍 経由地モード (床クリックで配置)</span>
+          </label>
+          <button id="waypointClearBtn" class="btn-soft hidden" style="margin-top:8px;width:100%" data-i18n="wp.clear">経由地をクリア</button>
+        </div>
+        <label class="inline" title="生成したモーションを繰り返し再生するか。" data-i18n-title="loop.title">
+          <span data-i18n="loop.label">ループ再生:</span>
+          <select id="loopSelect" style="flex:1">
+            <option value="auto" data-i18n="loop.auto">自動</option>
+            <option value="on" data-i18n="loop.on">常にループ</option>
+            <option value="off" data-i18n="loop.off">1回だけ再生</option>
+          </select>
+        </label>
+      </section>
+
+      <!-- 生成ボタン -->
+      <button id="generateBtn">
+        <span data-i18n="btn.generate">▶ モーション生成 &amp; 再生</span>
+      </button>
+      <div id="genProgress" class="hidden">
+        <div class="gen-progress-track"><div id="genProgressBar" class="gen-progress-bar"></div></div>
+        <p class="sub" id="genProgressText"></p>
       </div>
-    </div>
-    <div id="ardySettings" class="auth-box hidden">
-      <div id="ardyState" class="auth-state" data-i18n="ardy.unknown">エンジン未確認</div>
-      <div class="auth-actions">
-        <button id="ardyStartBtn" class="primary-outline hidden" data-i18n="btn.engineStart">エンジンを起動</button>
-        <button id="ardySetupBtn" class="hidden" data-i18n="btn.engineSetup">⬇ エンジンをセットアップ (初回のみ)</button>
-      </div>
-      <label class="check" title="ONにすると3Dビューの床をクリックして経由地を置けます。キャラクターは経由地を順番に通るように動きます。右クリックで1つ取り消し。" data-i18n-title="wp.labelTitle">
-        <input type="checkbox" id="waypointCheck" /> <span data-i18n="wp.label">📍 経由地モード (床クリックで配置)</span>
-      </label>
-      <div class="auth-actions">
-        <button id="waypointClearBtn" class="hidden" data-i18n="wp.clear">経由地をクリア</button>
-      </div>
-      <p class="sub" title="全身運動はNVIDIAのモーションAI、精密なポーズ指定はGPTキーフレームに自動で振り分けます (APIキー保存時)。APIキーがない場合はARDY単体+ローカル英訳で動きます。" data-i18n="ardy.desc" data-i18n-title="ardy.descTitle">ARDY (体) × GPT (頭) のハイブリッド。日本語OK、長さ・表情は自動。</p>
-      <details>
-        <summary class="sub" data-i18n="adv">詳細設定</summary>
-        <input type="text" id="ardyUrl" value="http://127.0.0.1:2337" title="ARDYエンジンサーバーのURL" style="width:100%" />
+
+      <!-- 4. 書き出し・共有 -->
+      <section class="card" id="outputSection">
+        <div class="card-head">
+          <span class="badge b4">4</span>
+          <div><div class="card-title" data-i18n="sec.output">🔗 書き出し・共有</div>
+          <div class="card-sub" data-i18n="sec.outputSub">生成したモーションをファイルとして書き出します。</div></div>
+        </div>
+        <button id="exportBtn" disabled data-i18n="btn.export">⬇ .vrma 保存</button>
+        <div class="row">
+          <button id="gifBtn" class="btn-blue" disabled title="今の3DビューをそのままGIFに書き出します (共有向き)。" data-i18n="btn.gif" data-i18n-title="btn.gifTitle">🎞 GIF書き出し</button>
+          <button id="webmBtn" class="btn-purple" disabled title="今の3Dビューを高画質な動画(WebM)に書き出します。" data-i18n="btn.webm" data-i18n-title="btn.webmTitle">🎬 動画書き出し</button>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="exprCheck" checked />
+          <span data-i18n="expr.label">😊 表情を含めて保存 (対応アプリでのみ再生されます)</span>
+        </label>
+      </section>
+
+      <div id="status" class="hidden"></div>
+
+      <!-- 生成履歴 -->
+      <section class="card">
+        <div class="head-row">
+          <div class="card-title" data-i18n="sec.history">🕘 生成履歴</div>
+          <button id="clearHistoryBtn" class="hidden" data-i18n="btn.clearHistory">🗑 履歴をクリア</button>
+        </div>
+        <div id="history"><p class="sub" data-i18n="history.empty">まだ生成したモーションはありません。</p></div>
+      </section>
+
+      <details class="ardy-fold" id="advancedFold">
+        <summary data-i18n="adv">詳細設定</summary>
+        <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="adv.ardyUrl">ARDYエンジンの接続先 (通常は変更不要)</label>
+        <input type="text" id="ardyUrl" value="http://127.0.0.1:2337" title="ARDYエンジンサーバーのURL" />
       </details>
-    </div>
-    <label class="check" title="生成後にもう1パス、可動域・軌道・緩急のセルフレビューを行って品質を上げます。時間とAPIコストは約2倍になります。" data-i18n-title="refine.title">
-      <input type="checkbox" id="refineCheck" checked />
-      <span data-i18n="refine.label">🔍 自己修正 (2パス生成で品質向上)</span>
-    </label>
-    <div class="section-title" data-i18n="sec.text">3. モーションをテキストで指示</div>
-    <textarea id="textInput" placeholder="例: その場で歩く&#10;例: 喜んでジャンプする&#10;例: 手を振る&#10;例: 悲しそうにうつむく" data-i18n-placeholder="input.ph"></textarea>
-    <label class="check" title="生成したモーションを繰り返し再生するか。自動は、エンジンの判断 (LLMモード) または動きの内容 (ARDY: その場の動きならループ、移動する動きなら1回) で決まります。" data-i18n-title="loop.title">
-      <span data-i18n="loop.label">ループ再生:</span>
-      <select id="loopSelect" style="flex:1">
-        <option value="auto" data-i18n="loop.auto">自動</option>
-        <option value="on" data-i18n="loop.on">常にループ</option>
-        <option value="off" data-i18n="loop.off">1回だけ再生</option>
-      </select>
-    </label>
-    <button id="generateBtn" data-i18n="btn.generate">▶ モーション生成 &amp; 再生</button>
-    <div id="genProgress" class="hidden">
-      <div class="gen-progress-track"><div id="genProgressBar" class="gen-progress-bar"></div></div>
-      <p class="sub" id="genProgressText"></p>
+
+      <div id="appFooter">
+        <span class="llama">Built with Meta Llama 3</span><br />
+        <span data-i18n="footer.ardy">モーション生成: NVIDIA ARDY</span><br />
+        <button id="licenseBtn" data-i18n="footer.licenses">サードパーティ ライセンス</button>
+      </div>
     </div>
 
-    <button id="exportBtn" disabled data-i18n="btn.export">⬇ .vrma 保存</button>
-    <label class="check">
-      <input type="checkbox" id="exprCheck" checked />
-      <span data-i18n="expr.label">😊 表情を含めて保存 (対応アプリでのみ再生されます)</span>
-    </label>
-
-    <div id="status" data-i18n="status.preparing">準備中...</div>
-
-    <div class="section-title" data-i18n="sec.history">生成履歴</div>
-    <div id="history"><p class="sub" data-i18n="history.empty">まだ生成したモーションはありません。</p></div>
-
-    <div id="appFooter">
-      <span class="llama">Built with Meta Llama 3</span><br />
-      <span data-i18n="footer.ardy">モーション生成: NVIDIA ARDY</span><br />
-      <button id="licenseBtn" data-i18n="footer.licenses">サードパーティ ライセンス</button>
+    <div id="viewerWrap">
+      <div class="viewer-head">
+        <div class="viewer-title" data-i18n="viewer.title">3Dプレビュー</div>
+        <div class="viewer-actions">
+          <button id="camResetBtn" data-i18n="btn.camReset">◎ カメラリセット</button>
+          <button id="fullscreenBtn" data-i18n="btn.fullscreen">⛶ フルスクリーン</button>
+        </div>
+      </div>
+      <canvas id="canvas"></canvas>
+      <div id="waypointGuide" class="hidden" data-i18n="wp.guide">📍 床クリック: 経由地を追加 / 右クリック: 1つ取り消し — キャラは番号順に通ります</div>
+      <div id="playbackBar" class="hidden">
+        <button id="pbPlayBtn" title="再生 / 一時停止">⏸</button>
+        <span id="pbTime" class="pb-time">0.0</span>
+        <input type="range" id="pbSeek" min="0" max="1000" value="0" step="1" />
+        <span id="pbDur" class="pb-time">0.0</span>
+      </div>
+      <div class="viewer-bar">
+        <div class="grp">
+          <span class="lbl" data-i18n="bg.label">🎨 背景</span>
+          <select id="bgSelect">
+            <option value="default" data-i18n="bg.default">標準</option>
+            <option value="solid" data-i18n="bg.solid">単色 (色を指定)</option>
+          </select>
+          <input type="color" id="bgColor" value="#00b140" title="背景色を選ぶ" />
+        </div>
+      </div>
     </div>
   </div>
 
@@ -269,13 +429,8 @@
     <div class="box">
       <h2 data-i18n="lic.title">サードパーティ ライセンス</h2>
       <pre id="licenseText"></pre>
-      <button id="licenseCloseBtn" class="primary-outline close" data-i18n="lic.close">閉じる</button>
+      <button id="licenseCloseBtn" class="btn-soft close" data-i18n="lic.close">閉じる</button>
     </div>
-  </div>
-
-  <div id="viewerWrap">
-    <canvas id="canvas"></canvas>
-    <div id="waypointGuide" class="hidden" data-i18n="wp.guide">📍 床クリック: 経由地を追加 / 右クリック: 1つ取り消し — キャラは番号順に通ります</div>
   </div>
 
   <script type="module" src="/src/main.js"></script>

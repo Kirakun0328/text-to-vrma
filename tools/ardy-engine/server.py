@@ -195,7 +195,11 @@ def maybe_translate(text: str):
     return english, text
 
 
-MAX_DURATION = 60.0
+# 自動判定 (estimate_duration) の上限。手動指定にはこの上限は適用しない
+AUTO_MAX_DURATION = 60.0
+# 手動指定の安全上限 (秒)。実質無制限だが、誤入力による極端な生成
+# (時間・メモリの暴走) を防ぐための最終ガードとして残す
+MAX_DURATION = 3600.0
 
 # --- 進捗トラッキング ---
 # stage: translate (翻訳・エンコード) → generate (チャンク生成、fractionが本当の進捗) → finalize (変換)
@@ -219,7 +223,7 @@ def estimate_duration(english: str, original: str | None) -> float:
     # 単発ジェスチャは短く
     if seq == 0 and re.search(r"^\s*(a person )?(wave|bow|nod|clap|salute|point)s?\b", t):
         base = 3.5
-    return max(3.0, min(MAX_DURATION, base))
+    return max(3.0, min(AUTO_MAX_DURATION, base))
 
 
 VRM_SCALE = 0.9 / 0.896  # retarget.py と同じ (アプリ座標 = Core座標 × scale)
@@ -508,7 +512,7 @@ def _resolve_segments(text, duration, segments_req):
             originals.append(original or english)
         if not segments:
             raise ValueError("segments に有効なテキストがありません")
-        # 合計を最長60秒に収める (超過分は末尾から比例縮小)
+        # 合計が安全上限を超える場合のみ比例縮小する (通常は指定どおり)
         total = sum(nf for _, nf in segments)
         max_frames = int(MAX_DURATION * FPS)
         if total > max_frames:
@@ -524,7 +528,8 @@ def _resolve_segments(text, duration, segments_req):
     if duration is None:
         duration = estimate_duration(english, original)
         print(f"auto duration: {duration:.1f}s for '{english[:50]}'", flush=True)
-    duration = max(0.5, min(MAX_DURATION, float(duration)))
+    # 下限は0.1秒 (実際は下の num_frames が最小PATCHフレーム=約0.2秒に丸める)
+    duration = max(0.1, min(MAX_DURATION, float(duration)))
     num_frames = max(PATCH, int(duration * FPS) // PATCH * PATCH)
     return [(english, num_frames)], english, original
 

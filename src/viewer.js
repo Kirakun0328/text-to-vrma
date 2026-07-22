@@ -19,13 +19,16 @@ export class Viewer {
       canvas,
       antialias: true,
       alpha: true,
+      preserveDrawingBuffer: true, // GIF/動画書き出しでキャンバスを読み出せるようにする
     });
     this.renderer.setPixelRatio(window.devicePixelRatio);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a1d24);
+    this.scene.background = new THREE.Color(0x0d1119);
+    // 追従グリッドの端をフォグで背景に溶かし、地面が無限に続くように見せる
+    this.scene.fog = new THREE.Fog(0x0d1119, 22, 95);
 
-    this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+    this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 300);
     this.camera.position.set(0, 1.2, 3.2);
 
     this.controls = new OrbitControls(this.camera, canvas);
@@ -33,14 +36,18 @@ export class Viewer {
     this.controls.enableDamping = true;
     this.controls.update();
 
-    const dir = new THREE.DirectionalLight(0xffffff, Math.PI * 0.9);
-    dir.position.set(1.5, 3, 2);
-    this.scene.add(dir);
-    this.scene.add(new THREE.AmbientLight(0xbfd4ff, Math.PI * 0.35));
+    this.dirLight = new THREE.DirectionalLight(0xffffff, Math.PI * 0.9);
+    this.dirLight.position.set(1.5, 3, 2);
+    this.scene.add(this.dirLight);
+    this.ambLight = new THREE.AmbientLight(0xbfd4ff, Math.PI * 0.35);
+    this.scene.add(this.ambLight);
+    this._baseDirIntensity = this.dirLight.intensity;
+    this._baseAmbIntensity = this.ambLight.intensity;
 
-    // ルート移動 (歩行・経由地) で歩き回れるよう広めに敷く
-    const grid = new THREE.GridHelper(40, 80, 0x3a4152, 0x262b36);
-    this.scene.add(grid);
+    // 地面グリッド (1マス=1m)。キャラの真下へ毎フレーム追従させることで、
+    // どこまで歩いても地面が続く「無制限」の見た目にする (メッシュ自体は有限で軽量)
+    this.grid = new THREE.GridHelper(200, 200, 0x3a4152, 0x262b36);
+    this.scene.add(this.grid);
 
     this.loader = new GLTFLoader();
     this.loader.register((parser) => new VRMLoaderPlugin(parser));
@@ -67,7 +74,108 @@ export class Viewer {
     if (this.mixer) this.mixer.update(dt);
     if (this.vrm) this.vrm.update(dt);
     this._followCharacter(dt);
+    this._followGrid();
     this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+    this.onFrame?.(); // 再生シークバー更新などの毎フレームフック
+  }
+
+  // グリッドをキャラの真下へ1mグリッド単位でスナップ移動させる。
+  // マス目単位で動かすので線はズレず、常にキャラの周囲に地面がある状態を保つ
+  _followGrid() {
+    const hips = this.vrm?.humanoid?.getNormalizedBoneNode('hips');
+    if (!hips || !this.grid) return;
+    const p = hips.getWorldPosition(this._gridTmp ??= new THREE.Vector3());
+    this.grid.position.x = Math.round(p.x);
+    this.grid.position.z = Math.round(p.z);
+  }
+
+  // カメラを現在のモデルに合わせて正面へ戻す
+  resetCamera() {
+    if (!this.vrm) return;
+    const bbox = new THREE.Box3().setFromObject(this.vrm.scene);
+    const height = Math.max(0.5, bbox.max.y - bbox.min.y);
+    const hips = this.vrm.humanoid?.getNormalizedBoneNode('hips');
+    const cx = hips ? hips.getWorldPosition(new THREE.Vector3()).x : 0;
+    const cz = hips ? hips.getWorldPosition(new THREE.Vector3()).z : 0;
+    this.controls.target.set(cx, height * 0.55, cz);
+    this.camera.position.set(cx, height * 0.65, cz + height * 2.1);
+    this.controls.update();
+  }
+
+
+  // 現在の再生位置。{time, duration, running} を返す (再生中でなければ null)
+  getPlayback() {
+    const a = this.currentAction;
+    const clip = a?.getClip?.();
+    if (!a || !clip || !clip.duration) return null;
+    // 万一クリップ長を超えた場合だけ折り返す (非ループ終端の time==duration はそのまま表示)
+    const time = a.time > clip.duration ? a.time % clip.duration : a.time;
+    return { time, duration: clip.duration, running: a.isRunning() };
+  }
+
+  // 指定秒へシーク (スクラブ用)
+  seek(time) {
+    const a = this.currentAction;
+    const clip = a?.getClip?.();
+    if (!a || !clip) return;
+    a.paused = false;
+    a.time = Math.max(0, Math.min(time, clip.duration - 0.001));
+    this.mixer.update(0); // 即座にポーズへ反映
+  }
+
+  setPaused(paused) {
+    if (this.currentAction) this.currentAction.paused = paused;
+  }
+
+  // 背景モード。'solid' は指定色の単色 (フォグ・グリッドを消してクロマキー等に使える)、
+  // それ以外は標準シーン (ダーク背景 + グリッド + フォグ)。color は '#rrggbb' か数値
+  setBackground(mode, color = '#00b140') {
+    if (mode === 'solid') {
+      // 単色 (クロマキー等): フラットな単色にしてグリッドは消す
+      this.scene.background = new THREE.Color(color);
+      this.scene.fog = null;
+      if (this.grid) this.grid.visible = false;
+    } else {
+      // 標準: ダーク背景 + フォグ + グリッド表示
+      this.scene.background = new THREE.Color(0x0d1119);
+      this.scene.fog = new THREE.Fog(0x0d1119, 22, 95);
+      if (this.grid) this.grid.visible = true;
+    }
+  }
+
+  // 通常の毎フレーム描画ループの ON/OFF。GIFのコマ送り中は OFF にして
+  // 裏のループとカメラ追従が競合しないようにする
+  setRenderLoop(on) {
+    this.renderer.setAnimationLoop(on ? () => this._tick() : null);
+  }
+
+  // 書き出し用に描画バッファを指定解像度 (例: 1920x1080) へ一時変更する。
+  // updateStyle=false で画面上のCSSサイズは変えず、内部バッファだけ高解像度化する。
+  // 戻り値の関数を呼ぶと元の表示サイズへ復元する
+  beginCapture(width, height) {
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    return () => {
+      this.renderer.setPixelRatio(window.devicePixelRatio);
+      this._resize();
+    };
+  }
+
+  // 指定秒の姿勢を1フレームだけ描画する (GIF書き出しのコマ送り用)。
+  // ミキサーを手動で進めてから同期的にレンダリングする
+  renderFrameAt(time) {
+    const a = this.currentAction;
+    const clip = a?.getClip?.();
+    if (a && clip) {
+      a.paused = false;
+      a.time = Math.max(0, Math.min(time, clip.duration - 0.001));
+      this.mixer.update(0);
+    }
+    if (this.vrm) this.vrm.update(0);
+    this._followGrid();
     this.renderer.render(this.scene, this.camera);
   }
 

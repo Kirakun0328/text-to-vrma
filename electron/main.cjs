@@ -75,10 +75,12 @@ function registerArdyIpc() {
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 820,
+    width: 1440,
+    height: 900,
+    minWidth: 1040,
+    minHeight: 680,
     title: 'Text-To-VRMA',
-    backgroundColor: '#12141a',
+    backgroundColor: '#0a0d16',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -86,6 +88,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
     },
   });
+  win.maximize(); // 2カラム (パネル + 3Dプレビュー) が見切れないよう最大化で起動
 
   // 外部リンクは既定ブラウザで開く
   win.webContents.setWindowOpenHandler(({ url }) => {
