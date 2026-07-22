@@ -52,7 +52,7 @@ APP_HIPS_HEIGHT = 0.9          # vrmaBuilder.js HIPS_HEIGHT
 
 
 def convert(npz_path: str, fps_div: int = 1) -> dict:
-    data = np.load(npz_path, allow_pickle=True)
+    data = np.load(npz_path, allow_pickle=False)
     return spec_from_arrays(
         data["global_rot_mats"],
         data["root_positions"],
