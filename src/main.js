@@ -1001,14 +1001,22 @@ async function checkForUpdate() {
     if (localStorage.getItem('update-dismissed') === remote) return;
     const banner = document.createElement('div');
     banner.id = 'updateBanner';
-    banner.innerHTML =
-      `${t('update.msg', { v: remote, cur: pkg.version })}` +
-      `<a href="${RELEASES_URL}" target="_blank" rel="noopener">${t('update.dl')}</a> ` +
-      `<button type="button">×</button>`;
-    banner.querySelector('button').addEventListener('click', () => {
+    // リモート由来の文字列 (remote) は textContent で入れる (innerHTMLに入れるとXSSになる)
+    const msg = document.createElement('span');
+    msg.textContent = t('update.msg', { v: remote, cur: pkg.version });
+    const link = document.createElement('a');
+    link.href = RELEASES_URL; // 定数 (リモート値ではない)
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = t('update.dl');
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '×';
+    close.addEventListener('click', () => {
       localStorage.setItem('update-dismissed', remote);
       banner.remove();
     });
+    banner.append(msg, link, document.createTextNode(' '), close);
     document.body.prepend(banner);
   } catch {
     // オフライン等で確認できない場合は何もしない

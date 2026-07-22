@@ -623,17 +623,37 @@ def generate_spec(
             PROGRESS["active"] = False
 
 
+# CORSを許可する呼び出し元 (アプリ本体 app:// / ローカル開発 / file://) のみに限定する。
+# 無関係なWebサイトから 127.0.0.1:2337 を叩かれてGPU/メモリを消費されるのを防ぐ
+_ALLOWED_ORIGIN_PREFIXES = ("app://", "http://localhost", "http://127.0.0.1", "file://")
+# リクエストボディの上限 (巨大bodyによるメモリ枯渇DoS対策)
+MAX_REQUEST_BYTES = 8 * 1024 * 1024  # 8MB
+
+
 class Handler(BaseHTTPRequestHandler):
+    def _cors_origin(self) -> str:
+        o = self.headers.get("Origin", "")
+        return o if o.startswith(_ALLOWED_ORIGIN_PREFIXES) else "null"
+
     def _send(self, code: int, payload: dict):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", self._cors_origin())
+        self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
         self.wfile.write(body)
+
+    def _read_json_body(self):
+        """Content-Lengthを検証してJSONボディを読む (上限超過はNoneを返す)"""
+        length = int(self.headers.get("Content-Length", 0))
+        if length > MAX_REQUEST_BYTES:
+            self._send(413, {"error": "request too large"})
+            return None
+        return json.loads(self.rfile.read(length) or b"{}")
 
     def do_OPTIONS(self):
         self._send(204, {})
@@ -686,8 +706,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
             return
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            req = json.loads(self.rfile.read(length) or b"{}")
+            req = self._read_json_body()
+            if req is None:
+                return  # サイズ超過 (413応答済み)
             text = str(req.get("text", "")).strip()
             segments_req = req.get("segments")
             duration = req.get("duration")  # 省略時はプロンプトから自動推定
@@ -715,8 +736,9 @@ class Handler(BaseHTTPRequestHandler):
         エラー時は {"type":"error","error":...}
         """
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            req = json.loads(self.rfile.read(length) or b"{}")
+            req = self._read_json_body()
+            if req is None:
+                return  # サイズ超過 (413応答済み)
         except Exception as e:  # noqa: BLE001
             self._send(400, {"error": str(e)})
             return
@@ -728,7 +750,8 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", self._cors_origin())
+        self.send_header("Vary", "Origin")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()

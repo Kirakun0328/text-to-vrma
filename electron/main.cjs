@@ -96,6 +96,14 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // メインフレームを app:// 以外へ遷移させない (万一のXSSでの画面乗っ取り対策)
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('app://')) {
+      event.preventDefault();
+      if (url.startsWith('https://')) shell.openExternal(url);
+    }
+  });
+
   win.loadURL('app://bundle/');
 }
 
