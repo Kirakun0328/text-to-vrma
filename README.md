@@ -121,7 +121,7 @@ NVIDIA Research の text-to-motion モデル
 
 | | 最低 | 推奨 |
 | --- | --- | --- |
-| OS | Windows 10/11 64bit、macOS | 同左 |
+| OS | Windows 10/11 64bit、macOS、Linux | 同左 |
 | RAM | 16GB | 32GB+ |
 | ディスク | 35GB | 同左 |
 | GPU | 不要 (CPUで1回数十秒) | NVIDIA GPU 6GB+ (1回数秒) |
@@ -157,6 +157,18 @@ macOS:
 ```bash
 bash tools/ardy-engine/install_mac.sh
 ```
+
+Linux:
+
+```bash
+bash tools/ardy-engine/install_linux.sh
+```
+
+Linux版は apt / dnf / yum / pacman / zypper に対応し、Python 3.10+・git・C++ビルドツール
+(gcc/g++・cmake) を必要に応じて自動導入します (パッケージ導入には sudo を使います)。
+NVIDIA GPU があれば CUDA 版 PyTorch を自動選択します (`nvidia-smi` で判定)。
+ブラウザ版から使う場合は、セットアップ完了時に表示される `server.py` 起動コマンドで
+エンジンを手動起動してください。
 
 macOSでHomebrewが未導入の場合は、セットアップ中に自動でインストールされます。
 macOS対応は [@emadurandal](https://github.com/emadurandal) さんのコントリビュート
@@ -207,8 +219,9 @@ spec 以降は両モード共通:
 | `electron/preload.cjs` | 認証情報を公開しない限定IPCブリッジ |
 | `tools/ardy-engine/server.py` | ARDY常駐サーバー: 生成・日本語翻訳・経由地制約・進捗API |
 | `tools/ardy-engine/retarget.py` | ARDY Coreスケルトン → VRM Humanoid リターゲット |
-| `tools/ardy-engine/install.ps1` | エンジンのワンコマンドセットアップ |
+| `tools/ardy-engine/install.ps1` | エンジンのワンコマンドセットアップ (Windows) |
 | `tools/ardy-engine/install_mac.sh` | macOS用エンジンのワンコマンドセットアップ |
+| `tools/ardy-engine/install_linux.sh` | Linux用エンジンのワンコマンドセットアップ |
 
 ## モーション spec フォーマット
 
@@ -237,8 +250,9 @@ LLM が生成する中間表現です:
 
 ## 注意事項
 
-- **動作確認環境: Windows 11** (macOS / Linux では動作未確認です。
-  ブラウザで動く Web アプリのため動作する見込みはありますが、保証はありません)
+- **動作確認環境: Windows 11** (macOS / Linux にはセットアップスクリプトを用意して
+  いますが、開発者による動作確認は Windows のみです。ブラウザで動く Web アプリのため
+  動作する見込みはありますが、保証はありません。不具合報告・修正PRを歓迎します)
 - APIキーモードのモーション生成には OpenAI API の利用料が発生します (1回あたり数円〜十数円程度。
   使用モデルとモーションの長さによって変動)
 - OpenAI の [データ共有プログラム (Complimentary daily tokens)](https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai)
