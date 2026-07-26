@@ -140,16 +140,18 @@ function maskEmail(email) {
   return `${user.slice(0, 2)}***@${domain}`;
 }
 
-const panelEl = $('panel');
+const apiSettingsHome = $('apiSettingsHome');
 const ardyGptSlot = $('ardyGptSlot');
 function renderAuthMode() {
   const mode = authModeSelect.value;
   const codexMode = mode === 'codex' && Boolean(codexBridge);
   const ardyMode = mode === 'ardy';
   // OpenAIキー+モデル選択は、api-keyモード(エンジン本体)でもARDYモード(任意の頭脳)でも使う。
-  // ARDYモードでは同じ要素をARDYパネル内の「GPT (頭)」欄へ移動して見せる
-  if (ardyMode) ardyGptSlot.appendChild(apiSettings);
-  else panelEl.insertBefore(apiSettings, codexSettings);
+  // ARDYモードでは同じ要素をARDYパネル内の「GPT (頭)」欄へ移動して見せる。
+  // 復帰先は専用スロットに固定する。以前の #panel.insertBefore() は、#panel の
+  // 子ではない codexSettings を referenceNode にしており NotFoundError になっていた。
+  const apiSettingsSlot = ardyMode ? ardyGptSlot : apiSettingsHome;
+  if (apiSettings.parentElement !== apiSettingsSlot) apiSettingsSlot.append(apiSettings);
   apiSettings.classList.toggle('hidden', codexMode);
   codexSettings.classList.toggle('hidden', !codexMode);
   ardySettings.classList.toggle('hidden', !ardyMode);
@@ -157,19 +159,40 @@ function renderAuthMode() {
   $('waypointRow').classList.toggle('hidden', !ardyMode);
   refineCheck.parentElement.classList.toggle('hidden', ardyMode); // 自己修正はLLMキーフレーム専用
   if (ardyMode) checkArdyHealth();
+  else cancelArdyHealthCheck();
 }
 
 // --- ARDYローカルエンジン ---
+let ardyHealthController = null;
+
+function isArdyMode() {
+  return authModeSelect.value === 'ardy';
+}
+
+function cancelArdyHealthCheck() {
+  ardyHealthController?.abort();
+  ardyHealthController = null;
+}
+
 function setArdyState(message, kind = '') {
   ardyState.textContent = message;
   ardyState.className = `auth-state${kind ? ` ${kind}` : ''}`;
 }
 
 async function checkArdyHealth({ showFailure = true } = {}) {
+  // ARDYを選択していない間は接続しない。切り替え直後に古い非同期応答が
+  // 非表示のARDYパネルを書き換えることも防ぐ。
+  if (!isArdyMode()) return false;
+  cancelArdyHealthCheck();
+  const controller = new AbortController();
+  ardyHealthController = controller;
   const url = ardyUrlInput.value.trim().replace(/\/$/, '');
   try {
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${url}/health`, {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3000)]),
+    });
     const info = await res.json();
+    if (controller.signal.aborted || !isArdyMode()) return false;
     if (info.status === 'loading') {
       // モデル読み込み中: サーバーが返す実進捗%を表示する
       setArdyState(t('ardy.booting', { pct: Math.round((info.progress || 0) * 100) }), 'ok');
@@ -188,12 +211,14 @@ async function checkArdyHealth({ showFailure = true } = {}) {
     ardySetupBtn.classList.add('hidden');
     return true;
   } catch {
+    if (controller.signal.aborted || !isArdyMode()) return false;
     // 起動待ちのポーリング中は、モデル初期化中の接続失敗で
     // 「未起動」表示や起動ボタンを一時的に復活させない。
     if (!showFailure) return false;
     if (window.ardyBridge) {
       // 未セットアップならボタンを「セットアップ」に切り替える (JSONを触らせない)
       const st = await window.ardyBridge.getStatus().catch(() => null);
+      if (controller.signal.aborted || !isArdyMode()) return false;
       const configured = Boolean(st?.configured);
       ardyStartBtn.textContent = t('btn.engineStart');
       ardyStartBtn.dataset.mode = configured ? 'start' : 'setup';
@@ -211,6 +236,8 @@ async function checkArdyHealth({ showFailure = true } = {}) {
       ardySetupBtn.classList.add('hidden');
     }
     return false;
+  } finally {
+    if (ardyHealthController === controller) ardyHealthController = null;
   }
 }
 
@@ -1069,7 +1096,9 @@ if (savedModel && [...apiModelSelect.options].some((o) => o.value === savedModel
 } else {
   apiModelSelect.value = DEFAULT_OPENAI_MODEL;
 }
-ardyUrlInput.addEventListener('change', () => checkArdyHealth());
+ardyUrlInput.addEventListener('change', () => {
+  if (isArdyMode()) checkArdyHealth();
+});
 
 // --- 経由地モード: 床クリックで配置 ---
 // カメラ回転のドラッグと区別するため、押した位置から動いていないクリックだけ拾う

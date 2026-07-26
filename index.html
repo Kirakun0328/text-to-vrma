@@ -109,6 +109,8 @@
     .pill { padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
     .pill.ok { background: rgba(52,209,122,0.14); color: var(--accent); border: 1px solid rgba(52,209,122,0.4); }
     .auth-box { display: flex; flex-direction: column; gap: 9px; }
+    /* API設定をARDY用スロットへ移動したとき、空の復帰先はカード内の余白を作らない */
+    #apiSettingsHome:empty { display: none; }
     .auth-state { font-size: 11.5px; line-height: 1.5; color: var(--muted); }
     .auth-state.ok { color: var(--accent); }
     .auth-state.err { color: #ff8484; }
@@ -282,21 +284,23 @@
             <option value="ardy" data-i18n="engine.ardy">ARDYローカルエンジン</option>
           </select>
         </div>
-        <div id="apiSettings" class="auth-box">
-          <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" data-i18n-placeholder="apiKey.ph" />
-          <select id="apiModelSelect">
-            <option value="gpt-5.6-sol" data-i18n="model.best">gpt-5.6-sol (最高精度)</option>
-            <option value="gpt-5.6-terra" data-i18n="model.balanced">gpt-5.6-terra (バランス)</option>
-            <option value="gpt-5.6-luna" data-i18n="model.low">gpt-5.6-luna (低コスト)</option>
-          </select>
-          <details class="ardy-fold">
-            <summary data-i18n="api.customHead">🔌 OpenAI互換プロバイダを使う (任意)</summary>
-            <p class="sub" style="margin:6px 0" data-i18n="api.customNote">OpenRouter / DeepSeek / Ollama 等のOpenAI互換APIを使う場合に設定します。空欄なら公式OpenAIを使います。</p>
-            <label class="field-label" data-i18n="api.baseUrl">APIベースURL</label>
-            <input type="text" id="apiBaseUrl" placeholder="https://api.openai.com/v1" />
-            <label class="field-label" style="margin-top:6px" data-i18n="api.customModel">モデル名 (カスタム)</label>
-            <input type="text" id="apiCustomModel" placeholder="例: deepseek-chat / meta-llama/llama-3.1-8b-instruct" data-i18n-placeholder="api.customModelPh" />
-          </details>
+        <div id="apiSettingsHome">
+          <div id="apiSettings" class="auth-box">
+            <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" data-i18n-placeholder="apiKey.ph" />
+            <select id="apiModelSelect">
+              <option value="gpt-5.6-sol" data-i18n="model.best">gpt-5.6-sol (最高精度)</option>
+              <option value="gpt-5.6-terra" data-i18n="model.balanced">gpt-5.6-terra (バランス)</option>
+              <option value="gpt-5.6-luna" data-i18n="model.low">gpt-5.6-luna (低コスト)</option>
+            </select>
+            <details class="ardy-fold">
+              <summary data-i18n="api.customHead">🔌 OpenAI互換プロバイダを使う (任意)</summary>
+              <p class="sub" style="margin:6px 0" data-i18n="api.customNote">OpenRouter / DeepSeek / Ollama 等のOpenAI互換APIを使う場合に設定します。空欄なら公式OpenAIを使います。</p>
+              <label class="field-label" data-i18n="api.baseUrl">APIベースURL</label>
+              <input type="text" id="apiBaseUrl" placeholder="https://api.openai.com/v1" />
+              <label class="field-label" style="margin-top:6px" data-i18n="api.customModel">モデル名 (カスタム)</label>
+              <input type="text" id="apiCustomModel" placeholder="例: deepseek-chat / meta-llama/llama-3.1-8b-instruct" data-i18n-placeholder="api.customModelPh" />
+            </details>
+          </div>
         </div>
         <div id="codexSettings" class="auth-box hidden">
           <div id="codexAuthState" class="auth-state" data-i18n="codex.checking">Codex CLIを確認中...</div>
