@@ -176,6 +176,24 @@ const CLAUDE_VERSION = '2023-06-01';
 // claude-opus-5 / claude-sonnet-5 は既定でadaptive thinkingが有効 (claude-haiku-4-5は既定オフ)
 const THINKING_MODELS = ['claude-opus-5', 'claude-sonnet-5'];
 
+// 進捗%の分母。Claudeは thinking の文字数も分子に入れるので、本文だけを学習する
+// OpenAI側のEMA (expectedResponseChars) を使うと分母が小さすぎて早々に99%で
+// 頭打ちになる。thinkingの量はモデル差が大きい (haiku 4.5 は思考なし) ため
+// モデル別に学習する
+const CLAUDE_RESP_CHARS_KEY = 'claude-resp-chars-ema';
+function expectedClaudeChars(model) {
+  const saved = Number(localStorage.getItem(`${CLAUDE_RESP_CHARS_KEY}:${model}`));
+  if (saved) return saved;
+  return THINKING_MODELS.includes(model) ? 10000 : 6000;
+}
+function updateExpectedClaudeChars(model, actual) {
+  const prev = expectedClaudeChars(model);
+  localStorage.setItem(
+    `${CLAUDE_RESP_CHARS_KEY}:${model}`,
+    String(Math.round(prev * 0.6 + actual * 0.4))
+  );
+}
+
 async function callClaude(messages, apiKey, model, onDelta) {
   const systemMsg = messages.find((m) => m.role === 'system');
   const claudeMessages = messages
@@ -310,9 +328,11 @@ export async function generateMotionWithClaude(
     `次の動きのモーションを作成: ${text}\n` +
     `(今回の演出の味付け: ${flavor}。ただしユーザーの指示と矛盾する場合は指示を優先)`;
 
-  const expected = expectedResponseChars();
+  const expected = expectedClaudeChars(model);
   const pass1End = refine ? 0.6 : 1.0;
 
+  // 進捗コールバックが最後に報告した文字数 (thinking込み)。次回の分母の学習に使う
+  let observed = 0;
   const draft = await callClaude(
     [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -320,9 +340,13 @@ export async function generateMotionWithClaude(
     ],
     apiKey,
     model,
-    onFraction && ((chars) => onFraction(Math.min(0.99, (chars / expected) * pass1End), 1))
+    onFraction && ((chars) => {
+      observed = chars;
+      onFraction(Math.min(0.99, (chars / expected) * pass1End), 1);
+    })
   );
-  updateExpectedResponseChars(draft.length);
+  // 非ストリーミング時は thinking の文字数が分からないので本文長で代用する
+  updateExpectedClaudeChars(model, observed || draft.length);
   let spec = parseJsonLenient(draft);
   validateSpec(spec);
 
