@@ -107,7 +107,11 @@ npm run app:dev
      OpenRouter / DeepSeek / Ollama 等の互換APIも使えます
    - **Claude API**: Anthropic の Claude APIキー (sk-ant-...) を入力し、モデル
      (claude-opus-5 / claude-sonnet-5 / claude-haiku-4-5) を選択します。
-     キーはブラウザの localStorage にのみ保存され、Anthropic 以外には送信されません
+     キーはブラウザの localStorage にのみ保存され、Anthropic 以外には送信されません。
+     Claude API対応は [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) さん
+     ([#9](https://github.com/Kirakun0328/text-to-vrma/pull/9)) のコントリビュートによるもので、
+     **コントリビューターがブラウザ版・デスクトップ版で動作確認していますが、作者環境では未確認です**。
+     不具合報告・動作報告を歓迎します
    - **Codexサブスクリプション（デスクトップ版）**: 「ChatGPTでログイン」を押して
      既定ブラウザで認証します。既にCodex CLIでログイン済みなら、その認証を再利用します
    - **ARDYローカルエンジン**: ローカルで動くモーション生成AI (下記セクション参照)
@@ -354,6 +358,8 @@ your support genuinely keeps this work (and its developer) going 💚
   素晴らしいコントリビュートをありがとうございます!
 - [@Misuta890](https://github.com/Misuta890) — Electron版のエンジン切替の不具合修正 ([#8](https://github.com/Kirakun0328/text-to-vrma/pull/8))。
   ありがとうございます!
+- [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) — Claude API (Anthropic) 対応 (ブラウザ版・デスクトップ版で動作確認、[#9](https://github.com/Kirakun0328/text-to-vrma/pull/9) / [#11](https://github.com/Kirakun0328/text-to-vrma/issues/11))。
+  素晴らしいコントリビュートをありがとうございます!
 
 バグ報告・機能提案・PRを歓迎しています。macOS / Linux 環境の改善はコミュニティの力が頼りです。
 
