@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- CSP: 万一のXSSでもスクリプト実行や外部読み込みを封じる (script-srcは'self'のみ)。
-       connect-srcはOpenAI/互換API(https)とローカルARDYエンジンを許可 -->
+       connect-srcはOpenAI/Claude/互換API(https)とローカルARDYエンジンを許可 -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' blob: https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'none'" />
   <title>Text-To-VRMA — VRM特化型Text-To-Motionツール</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕺</text></svg>" />
@@ -280,6 +280,7 @@
         <div class="engine-top">
           <select id="authMode">
             <option value="api-key" data-i18n="engine.apiKey">OpenAI APIキー</option>
+            <option value="claude" data-i18n="engine.claude">Claude API</option>
             <option value="codex" data-i18n="engine.codex">Codexサブスクリプション</option>
             <option value="ardy" data-i18n="engine.ardy">ARDYローカルエンジン</option>
           </select>
@@ -301,6 +302,14 @@
               <input type="text" id="apiCustomModel" placeholder="例: deepseek-chat / meta-llama/llama-3.1-8b-instruct" data-i18n-placeholder="api.customModelPh" />
             </details>
           </div>
+        </div>
+        <div id="claudeSettings" class="auth-box hidden">
+          <input type="password" id="claudeApiKey" placeholder="Claude APIキー (sk-ant-...)" data-i18n-placeholder="claudeKey.ph" />
+          <select id="claudeModelSelect">
+            <option value="claude-opus-5" data-i18n="model.claudeOpus">claude-opus-5 (最高精度)</option>
+            <option value="claude-sonnet-5" data-i18n="model.claudeSonnet">claude-sonnet-5 (バランス)</option>
+            <option value="claude-haiku-4-5" data-i18n="model.claudeHaiku">claude-haiku-4-5 (低コスト)</option>
+          </select>
         </div>
         <div id="codexSettings" class="auth-box hidden">
           <div id="codexAuthState" class="auth-state" data-i18n="codex.checking">Codex CLIを確認中...</div>

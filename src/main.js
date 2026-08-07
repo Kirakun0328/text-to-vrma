@@ -9,10 +9,12 @@ import { appendNeutralEnding } from './specMerge.js';
 import { exportGIF, exportWebM, downloadBlob } from './recorder.js';
 import {
   generateMotionWithOpenAI,
+  generateMotionWithClaude,
   generateMotionWithCodex,
   planArdySegments,
   setApiBase,
   DEFAULT_OPENAI_MODEL,
+  DEFAULT_CLAUDE_MODEL,
 } from './llm.js';
 
 const $ = (id) => document.getElementById(id);
@@ -36,6 +38,9 @@ const apiBaseUrlInput = $('apiBaseUrl');
 const apiCustomModelInput = $('apiCustomModel');
 const authModeSelect = $('authMode');
 const apiSettings = $('apiSettings');
+const claudeSettings = $('claudeSettings');
+const claudeApiKeyInput = $('claudeApiKey');
+const claudeModelSelect = $('claudeModelSelect');
 const codexSettings = $('codexSettings');
 const apiModelSelect = $('apiModelSelect');
 const codexModelSelect = $('codexModelSelect');
@@ -146,13 +151,15 @@ function renderAuthMode() {
   const mode = authModeSelect.value;
   const codexMode = mode === 'codex' && Boolean(codexBridge);
   const ardyMode = mode === 'ardy';
+  const claudeMode = mode === 'claude';
   // OpenAIキー+モデル選択は、api-keyモード(エンジン本体)でもARDYモード(任意の頭脳)でも使う。
   // ARDYモードでは同じ要素をARDYパネル内の「GPT (頭)」欄へ移動して見せる。
   // 復帰先は専用スロットに固定する。以前の #panel.insertBefore() は、#panel の
   // 子ではない codexSettings を referenceNode にしており NotFoundError になっていた。
   const apiSettingsSlot = ardyMode ? ardyGptSlot : apiSettingsHome;
   if (apiSettings.parentElement !== apiSettingsSlot) apiSettingsSlot.append(apiSettings);
-  apiSettings.classList.toggle('hidden', codexMode);
+  apiSettings.classList.toggle('hidden', codexMode || claudeMode);
+  claudeSettings.classList.toggle('hidden', !claudeMode);
   codexSettings.classList.toggle('hidden', !codexMode);
   ardySettings.classList.toggle('hidden', !ardyMode);
   // 経由地モード (セクション3) はARDYモード専用なので、それ以外では隠す
@@ -489,11 +496,11 @@ async function initializeAuth() {
   const savedMode = localStorage.getItem('openai-auth-mode');
   if (!codexBridge) {
     authModeSelect.querySelector('option[value="codex"]')?.remove();
-    authModeSelect.value = savedMode === 'ardy' ? 'ardy' : 'api-key';
+    authModeSelect.value = ['ardy', 'claude'].includes(savedMode) ? savedMode : 'api-key';
     renderAuthMode();
     return;
   }
-  authModeSelect.value = ['codex', 'ardy'].includes(savedMode) ? savedMode : 'api-key';
+  authModeSelect.value = ['codex', 'ardy', 'claude'].includes(savedMode) ? savedMode : 'api-key';
   renderAuthMode();
   await refreshCodexStatus();
 }
@@ -706,8 +713,13 @@ generateBtn.addEventListener('click', async () => {
   }
   const authMode = authModeSelect.value;
   const apiKey = apiKeyInput.value.trim();
+  const claudeApiKey = claudeApiKeyInput.value.trim();
   if (authMode === 'api-key' && !apiKey) {
     setStatus(t('err.noApiKey'), 'err');
+    return;
+  }
+  if (authMode === 'claude' && !claudeApiKey) {
+    setStatus(t('err.noClaudeKey'), 'err');
     return;
   }
   if (authMode === 'codex' && codexStatus?.account?.type !== 'chatgpt') {
@@ -737,19 +749,34 @@ generateBtn.addEventListener('click', async () => {
     } else {
       // api-keyモードはカスタムモデル入力があればそれを優先 (OpenAI互換プロバイダ対応)
       const customModel = apiCustomModelInput.value.trim();
-      const model = authMode === 'codex'
-        ? codexModelSelect.value
-        : (customModel || apiModelSelect.value);
+      let model;
+      if (authMode === 'codex') model = codexModelSelect.value;
+      else if (authMode === 'claude') model = claudeModelSelect.value;
+      else model = customModel || apiModelSelect.value;
       if (!model) throw new Error(t('err.noModel'));
       if (authMode === 'api-key') {
         localStorage.setItem('openai-api-key', apiKey);
         localStorage.setItem('openai-model', model);
         setApiBase(apiBaseUrlInput.value); // カスタムベースURL (空欄なら公式)
+      } else if (authMode === 'claude') {
+        localStorage.setItem('claude-api-key', claudeApiKey);
+        localStorage.setItem('claude-model', model);
       }
       localStorage.setItem('refine-enabled', refineCheck.checked ? '1' : '0');
-      setStatus(t('gen.llm', { engine: authMode === 'codex' ? 'Codex' : 'OpenAI', model }));
+      const engineLabel = authMode === 'codex' ? 'Codex' : authMode === 'claude' ? 'Claude' : 'OpenAI';
+      setStatus(t('gen.llm', { engine: engineLabel, model }));
       if (authMode === 'codex') {
         spec = await generateMotionWithCodex(text, model, options);
+      } else if (authMode === 'claude') {
+        const progress = startLLMProgressBar();
+        try {
+          spec = await generateMotionWithClaude(text, claudeApiKey, model, {
+            ...options,
+            onFraction: progress.update,
+          });
+        } finally {
+          progress.done();
+        }
       } else {
         const progress = startLLMProgressBar();
         try {
@@ -989,6 +1016,13 @@ viewerWrap.addEventListener('drop', (e) => {
 apiKeyInput.value = localStorage.getItem('openai-api-key') ?? '';
 apiBaseUrlInput.value = localStorage.getItem('openai-base-url') ?? '';
 apiCustomModelInput.value = localStorage.getItem('openai-custom-model') ?? '';
+claudeApiKeyInput.value = localStorage.getItem('claude-api-key') ?? '';
+const savedClaudeModel = localStorage.getItem('claude-model');
+if (savedClaudeModel && [...claudeModelSelect.options].some((o) => o.value === savedClaudeModel)) {
+  claudeModelSelect.value = savedClaudeModel;
+} else {
+  claudeModelSelect.value = DEFAULT_CLAUDE_MODEL;
+}
 apiBaseUrlInput.addEventListener('change', () => {
   localStorage.setItem('openai-base-url', apiBaseUrlInput.value.trim());
   setApiBase(apiBaseUrlInput.value);

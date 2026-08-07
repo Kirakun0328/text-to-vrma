@@ -21,12 +21,13 @@
 - 📍 **経由地モード** — 3Dビューの床をクリックして移動経路を指定 (ARDY)
 - 😊 **表情の自動生成** + 4言語UI (日本語 / English / 中文 / 한국어)
 - 🔌 **OpenAI互換プロバイダ対応** — OpenRouter / DeepSeek / Ollama 等も使えます
+- 🟣 **Claude API対応** — Anthropic の Claude (claude-opus-5 等) でもモーション生成できます
 
 生成エンジンは2種類から選べます:
 
 | エンジン | 特徴 | 必要なもの |
 | --- | --- | --- |
-| **LLMキーフレーム** (OpenAI API / Codex / 互換API) | 正確なポーズ・手指・表情の指定が得意。セットアップ不要でどのPCでも動く。OpenAI互換API (OpenRouter/DeepSeek/Ollama等) も指定可 | APIキー または Codexプラン |
+| **LLMキーフレーム** (OpenAI API / Claude API / Codex / 互換API) | 正確なポーズ・手指・表情の指定が得意。セットアップ不要でどのPCでも動く。OpenAI互換API (OpenRouter/DeepSeek/Ollama等) や Anthropic の Claude API も指定可 | APIキー または Codexプラン |
 | **ARDYローカルエンジン** (v1.1〜) | NVIDIAのモーション生成AI [ARDY](https://github.com/nv-tlabs/ardy) をローカル実行。歩行・ダンス・ジャンプ等の全身運動が**モーションキャプチャ品質**。生成無制限・オフライン動作 | 追加セットアップ (下記) |
 
 ARDYモードは **GPT (頭) × ARDY (体) のハイブリッド**として動作し、APIキーがあれば
@@ -58,7 +59,7 @@ UIは **日本語 / English / 中文 / 한국어** の4言語に対応 (画面�
 | 何をするか | 必要なもの |
 | --- | --- |
 | 共通 | Node.js 20+、git |
-| モーション生成 (LLMキーフレーム) | OpenAI APIキー ([platform.openai.com](https://platform.openai.com/) で取得)。デスクトップ版なら代わりに Codex CLI 0.144.1+ と ChatGPT/Codexプランでも可 |
+| モーション生成 (LLMキーフレーム) | OpenAI APIキー ([platform.openai.com](https://platform.openai.com/) で取得) または Claude APIキー ([console.anthropic.com](https://console.anthropic.com/) で取得)。デスクトップ版なら代わりに Codex CLI 0.144.1+ と ChatGPT/Codexプランでも可 |
 | ARDYローカルエンジン (任意) | [下記セクション](#ardyローカルエンジン-オプション)参照 (Python 3.10+ / git、約20GBダウンロード)。**こちらはAPIキーなしでも動きます** |
 
 VRMモデルは [VRoid 公式サンプルモデル (AvatarSample)](https://hub.vroid.com/characters/2843975675147313744/models/5644550979324015604)
@@ -104,6 +105,9 @@ npm run app:dev
      localStorage にのみ保存され、OpenAI 以外には送信されません。
      「🔌 OpenAI互換プロバイダを使う」からベースURL・モデル名を指定すれば、
      OpenRouter / DeepSeek / Ollama 等の互換APIも使えます
+   - **Claude API**: Anthropic の Claude APIキー (sk-ant-...) を入力し、モデル
+     (claude-opus-5 / claude-sonnet-5 / claude-haiku-4-5) を選択します。
+     キーはブラウザの localStorage にのみ保存され、Anthropic 以外には送信されません
    - **Codexサブスクリプション（デスクトップ版）**: 「ChatGPTでログイン」を押して
      既定ブラウザで認証します。既にCodex CLIでログイン済みなら、その認証を再利用します
    - **ARDYローカルエンジン**: ローカルで動くモーション生成AI (下記セクション参照)

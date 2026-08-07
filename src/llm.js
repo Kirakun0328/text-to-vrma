@@ -169,6 +169,192 @@ export const REFINE_INSTRUCTION = `以下は上記の指示で生成されたモ
 5. 意図: そもそもユーザーの指示した動きになっているか。
 6. 表現: 定型的・機械的すぎないか。実際の人間がやる動きとして違和感がないか。`;
 
+// Claude API (Anthropic) 対応: ブラウザから直接呼び出す (OpenAIキーと同様、localStorageにのみ保存)
+export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5';
+const CLAUDE_API_BASE = 'https://api.anthropic.com/v1';
+const CLAUDE_VERSION = '2023-06-01';
+// claude-opus-5 / claude-sonnet-5 は既定でadaptive thinkingが有効 (claude-haiku-4-5は既定オフ)
+const THINKING_MODELS = ['claude-opus-5', 'claude-sonnet-5'];
+
+async function callClaude(messages, apiKey, model, onDelta) {
+  const systemMsg = messages.find((m) => m.role === 'system');
+  const claudeMessages = messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => ({ role: m.role, content: m.content }));
+
+  const res = await fetch(`${CLAUDE_API_BASE}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': CLAUDE_VERSION,
+      // ブラウザから直接APIを叩くための必須ヘッダー (Anthropicは既定でCORSをブロックする)
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model,
+      // claude-opus-5 / claude-sonnet-5 は既定でadaptive thinkingが有効で、
+      // 思考トークンも max_tokens の枠を消費する。長い複合モーションのJSONが
+      // 途中で打ち切られないよう、思考+応答の余裕を持たせて大きめに確保する
+      max_tokens: 16000,
+      ...(systemMsg ? { system: systemMsg.content } : {}),
+      messages: claudeMessages,
+      // display を明示的に 'summarized' にしないと、thinking の既定 display は
+      // 'omitted' で thinking 中は text_delta が一切来ず、進捗バーが 0% のまま
+      // 長時間止まって見える。thinking_delta の文字数も進捗計算に使う (下記)
+      ...(THINKING_MODELS.includes(model)
+        ? { thinking: { type: 'adaptive', display: 'summarized' } }
+        : {}),
+      ...(onDelta ? { stream: true } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const err = await res.json();
+      detail = err.error?.message ?? detail;
+    } catch { /* JSONでないエラー応答はステータスのみ */ }
+    throw new Error(`Claude API エラー: ${detail}`);
+  }
+
+  // ストリーミング受信: 受信文字数を進捗コールバックに流す
+  if (onDelta && res.body) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    let content = '';
+    // thinking の文字数。content には含めない (JSON本体ではないため) が、
+    // 進捗バーが thinking フェーズ中も動くよう分数計算の分子には加える
+    let thinkingChars = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const lines = pending.split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        const data = line.replace(/^data: /, '').trim();
+        if (!data) continue;
+        let evt;
+        try {
+          evt = JSON.parse(data);
+        } catch {
+          continue; // SSEイベント境界等のパース失敗は無視
+        }
+        if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+          content += evt.delta.text;
+          onDelta(content.length + thinkingChars);
+        } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
+          thinkingChars += evt.delta.thinking?.length ?? 0;
+          onDelta(content.length + thinkingChars);
+        } else if (evt.type === 'message_delta' && evt.delta?.stop_reason) {
+          if (evt.delta.stop_reason === 'refusal') {
+            throw new Error('Claude が安全性の理由でリクエストを拒否しました');
+          }
+          if (evt.delta.stop_reason === 'max_tokens') {
+            throw new Error(t('llm.claudeMaxTokens'));
+          }
+        }
+      }
+    }
+    if (!content) throw new Error('Claude API から有効な応答が得られませんでした');
+    return content;
+  }
+
+  const data = await res.json();
+  if (data.stop_reason === 'refusal') {
+    throw new Error('Claude が安全性の理由でリクエストを拒否しました');
+  }
+  if (data.stop_reason === 'max_tokens') {
+    throw new Error(t('llm.claudeMaxTokens'));
+  }
+  const textBlock = data.content?.find((b) => b.type === 'text');
+  if (!textBlock?.text) throw new Error('Claude API から有効な応答が得られませんでした');
+  return textBlock.text;
+}
+
+// Claude には output_config.format (json_schema) による厳密なJSON強制モードがあるが、
+// 今回はスコープを絞り採用していない (parseJsonLenient をフォールバックとして使う)。
+// コードフェンスに包まれた場合や前後に余計な文字が付いた場合に備えて緩めにパースする
+function parseJsonLenient(text) {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start !== -1 && end > start) return JSON.parse(trimmed.slice(start, end + 1));
+    throw new Error('Claude の応答をJSONとして解析できませんでした');
+  }
+}
+
+/**
+ * Claude API でテキストからモーション spec を生成する。
+ * @param {string} text ユーザー入力
+ * @param {string} apiKey Claude APIキー (sk-ant-...)
+ * @param {string} model 使用するモデル ID (例: 'claude-opus-5')
+ * @param {object} [options]
+ * @param {boolean} [options.refine=true] 2パス目で自己修正を行う
+ * @param {(msg: string) => void} [options.onProgress] 進捗表示コールバック
+ * @returns {Promise<object>} モーション spec
+ */
+export async function generateMotionWithClaude(
+  text,
+  apiKey,
+  model = DEFAULT_CLAUDE_MODEL,
+  { refine = true, onProgress, onFraction } = {}
+) {
+  const flavor = randomFlavor();
+  const userMsg =
+    `次の動きのモーションを作成: ${text}\n` +
+    `(今回の演出の味付け: ${flavor}。ただしユーザーの指示と矛盾する場合は指示を優先)`;
+
+  const expected = expectedResponseChars();
+  const pass1End = refine ? 0.6 : 1.0;
+
+  const draft = await callClaude(
+    [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userMsg },
+    ],
+    apiKey,
+    model,
+    onFraction && ((chars) => onFraction(Math.min(0.99, (chars / expected) * pass1End), 1))
+  );
+  updateExpectedResponseChars(draft.length);
+  let spec = parseJsonLenient(draft);
+  validateSpec(spec);
+
+  // 2パス目: 自己修正 (失敗しても1パス目の結果を使う)
+  if (refine) {
+    onProgress?.(t('gen.refine2nd'));
+    try {
+      const refined = await callClaude(
+        [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userMsg },
+          { role: 'assistant', content: JSON.stringify(spec) },
+          { role: 'user', content: REFINE_INSTRUCTION },
+        ],
+        apiKey,
+        model,
+        onFraction && ((chars) => onFraction(Math.min(0.99, pass1End + (chars / expected) * (1 - pass1End)), 2))
+      );
+      const refinedSpec = parseJsonLenient(refined);
+      validateSpec(refinedSpec);
+      spec = refinedSpec;
+    } catch (e) {
+      console.warn('自己修正パスに失敗したため1パス目の結果を使用します:', e);
+    }
+  }
+
+  if (!spec.hips?.length) delete spec.hips;
+  if (WAVE_RE.test(text)) applyWaveCorrection(spec);
+  spec.flavor = flavor; // 表示用 (buildVRMA では無視される)
+  return spec;
+}
+
 // ボーン別の安全な角度上限 (度)。LLM出力の暴れをクランプする
 const ANGLE_LIMITS = {
   leftHand: 25, rightHand: 25,
