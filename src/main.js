@@ -13,6 +13,7 @@ import {
   generateMotionWithCodex,
   planArdySegments,
   setApiBase,
+  isLocalProvider,
   DEFAULT_OPENAI_MODEL,
   DEFAULT_CLAUDE_MODEL,
 } from './llm.js';
@@ -714,7 +715,7 @@ generateBtn.addEventListener('click', async () => {
   const authMode = authModeSelect.value;
   const apiKey = apiKeyInput.value.trim();
   const claudeApiKey = claudeApiKeyInput.value.trim();
-  if (authMode === 'api-key' && !apiKey) {
+  if (authMode === 'api-key' && !apiKey && !isLocalProvider()) {
     setStatus(t('err.noApiKey'), 'err');
     return;
   }
@@ -1026,11 +1027,78 @@ if (savedClaudeModel && [...claudeModelSelect.options].some((o) => o.value === s
 apiBaseUrlInput.addEventListener('change', () => {
   localStorage.setItem('openai-base-url', apiBaseUrlInput.value.trim());
   setApiBase(apiBaseUrlInput.value);
+  fetchLocalModels(apiBaseUrlInput.value.trim());
+  updateApiKeyPlaceholder(apiBaseUrlInput.value.trim());
 });
+
+// ローカルプロバイダではAPIキーが不要な場合があるため、プレースホルダーを更新する
+function updateApiKeyPlaceholder(baseUrl) {
+  if (baseUrl) {
+    apiKeyInput.placeholder = 'APIキー (省略可)';
+    apiKeyInput.type = 'text'; // ローカルならセキュリティ上問題なし
+  } else {
+    apiKeyInput.placeholder = t('apiKey.ph');
+    apiKeyInput.type = 'password';
+  }
+}
+
+// ローカルプロバイダからモデル一覧を取得して apiModelSelect を更新する
+let localModelsFetched = false;
+async function fetchLocalModels(baseUrl) {
+  if (!baseUrl) {
+    // 公式OpenAIに戻した場合はデフォルトモデルリストを復元
+    if (localModelsFetched) {
+      apiModelSelect.innerHTML = '';
+      for (const [val, label] of [
+        ['gpt-5.6-sol', t('model.best')],
+        ['gpt-5.6-terra', t('model.balanced')],
+        ['gpt-5.6-luna', t('model.low')],
+      ]) {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = label;
+        apiModelSelect.appendChild(opt);
+      }
+      const saved = localStorage.getItem('openai-model');
+      if ([...apiModelSelect.options].some((o) => o.value === saved)) {
+        apiModelSelect.value = saved;
+      }
+      localModelsFetched = false;
+    }
+    return;
+  }
+  try {
+    const res = await fetch(`${baseUrl}/models`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return;
+    const data = await res.json();
+    const models = (data.data ?? data ?? [])
+      .map((m) => m.id ?? m.name)
+      .filter((id) => typeof id === 'string' && id);
+    if (models.length === 0) return;
+    // モデルリストを動的プロバイダのものに置き換え
+    apiModelSelect.innerHTML = '';
+    for (const id of models) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      apiModelSelect.appendChild(opt);
+    }
+    localModelsFetched = true;
+    // 保存済みモデルがあれば選択
+    const saved = localStorage.getItem('openai-custom-model') || localStorage.getItem('openai-model');
+    if (saved && [...apiModelSelect.options].some((o) => o.value === saved)) {
+      apiModelSelect.value = saved;
+    }
+    console.log(`[Local] Fetched ${models.length} models from ${baseUrl}`);
+  } catch (e) {
+    console.warn('[Local] Failed to fetch models:', e.message);
+  }
+}
 apiCustomModelInput.addEventListener('change', () => {
   localStorage.setItem('openai-custom-model', apiCustomModelInput.value.trim());
 });
 setApiBase(apiBaseUrlInput.value); // 起動時に保存済みのベースURLを反映
+updateApiKeyPlaceholder(apiBaseUrlInput.value);
 refineCheck.checked = localStorage.getItem('refine-enabled') !== '0';
 autoLengthCheck.checked = localStorage.getItem('auto-length') === '1';
 autoLengthCheck.addEventListener('change', () => {

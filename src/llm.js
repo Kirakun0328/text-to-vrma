@@ -440,7 +440,7 @@ function applyWaveCorrection(spec) {
   }
 }
 
-// OpenAI互換プロバイダ対応: ベースURLを差し替え可能にする (OpenRouter / DeepSeek / Ollama 等)
+// OpenAI互換プロバイダ対応: ベースURLを差し替え可能にする (OpenRouter / DeepSeek / Ollama / LM Studio 等)
 const DEFAULT_API_BASE = 'https://api.openai.com/v1';
 let API_BASE = DEFAULT_API_BASE;
 export function setApiBase(url) {
@@ -448,16 +448,27 @@ export function setApiBase(url) {
   API_BASE = u || DEFAULT_API_BASE;
 }
 
+// ローカルプロバイダ (Ollama / LM Studio 等) かどうかを判定する。
+// response_format: json_object は LM Studio が未対応のため、ローカルでは送らない。
+export function isLocalProvider() {
+  return API_BASE !== DEFAULT_API_BASE
+    && !API_BASE.includes('openai.com')
+    && !API_BASE.includes('openrouter.ai');
+}
+
 async function callOpenAI(messages, apiKey, model, onDelta) {
+  const local = isLocalProvider();
   const res = await fetch(`${API_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     },
     body: JSON.stringify({
       model,
-      response_format: { type: 'json_object' },
+      // LM Studio は response_format: json_object に 400 を返すため、
+      // ローカルプロバイダでは送らない (parseJsonLenient で JSON を抽出する)
+      ...(!local && { response_format: { type: 'json_object' } }),
       messages,
       ...(onDelta ? { stream: true } : {}),
     }),
@@ -542,6 +553,10 @@ export async function generateMotionWithOpenAI(
   const expected = expectedResponseChars();
   const pass1End = refine ? 0.6 : 1.0;
 
+  // ローカルプロバイダは response_format: json_object 未対応のため、
+  // JSONを柔軟にパースする (parseJsonLenient は Claude 用に既存)
+  const parse = isLocalProvider() ? parseJsonLenient : JSON.parse;
+
   // 1パス目: 生成
   const draft = await callOpenAI(
     [
@@ -553,7 +568,7 @@ export async function generateMotionWithOpenAI(
     onFraction && ((chars) => onFraction(Math.min(0.99, (chars / expected) * pass1End), 1))
   );
   updateExpectedResponseChars(draft.length);
-  let spec = JSON.parse(draft);
+  let spec = parse(draft);
   validateSpec(spec);
 
   // 2パス目: 自己修正 (失敗しても1パス目の結果を使う)
@@ -571,7 +586,7 @@ export async function generateMotionWithOpenAI(
         model,
         onFraction && ((chars) => onFraction(Math.min(0.99, pass1End + (chars / expected) * (1 - pass1End)), 2))
       );
-      const refinedSpec = JSON.parse(refined);
+      const refinedSpec = parse(refined);
       validateSpec(refinedSpec);
       spec = refinedSpec;
     } catch (e) {

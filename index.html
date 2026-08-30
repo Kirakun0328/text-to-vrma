@@ -293,14 +293,13 @@
               <option value="gpt-5.6-terra" data-i18n="model.balanced">gpt-5.6-terra (バランス)</option>
               <option value="gpt-5.6-luna" data-i18n="model.low">gpt-5.6-luna (低コスト)</option>
             </select>
-            <details class="ardy-fold">
-              <summary data-i18n="api.customHead">🔌 OpenAI互換プロバイダを使う (任意)</summary>
-              <p class="sub" style="margin:6px 0" data-i18n="api.customNote">OpenRouter / DeepSeek / Ollama 等のOpenAI互換APIを使う場合に設定します。空欄なら公式OpenAIを使います。</p>
-              <label class="field-label" data-i18n="api.baseUrl">APIベースURL</label>
-              <input type="text" id="apiBaseUrl" placeholder="https://api.openai.com/v1" />
-              <label class="field-label" style="margin-top:6px" data-i18n="api.customModel">モデル名 (カスタム)</label>
-              <input type="text" id="apiCustomModel" placeholder="例: deepseek-chat / meta-llama/llama-3.1-8b-instruct" data-i18n-placeholder="api.customModelPh" />
-            </details>
+            <div id="localProviderSection">
+              <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="api.baseUrl">APIベースURL (任意)</label>
+              <input type="text" id="apiBaseUrl" placeholder="http://localhost:11434/v1 (Ollama) / http://localhost:1234/v1 (LM Studio)" />
+              <p class="sub" style="margin:4px 0 0" data-i18n="api.baseUrlNote">空欄なら公式OpenAI。ローカルプロバイダではAPIキー不要の場合があります。</p>
+              <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="api.customModel">モデル名 (カスタム)</label>
+              <input type="text" id="apiCustomModel" placeholder="例: llama3.1 / deepseek-chat" data-i18n-placeholder="api.customModelPh" />
+            </div>
           </div>
         </div>
         <div id="claudeSettings" class="auth-box hidden">
