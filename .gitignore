@@ -24,3 +24,6 @@ video/*.mp4
 # Python
 __pycache__/
 *.pyc
+
+# Rust build artifacts
+src-tauri/target/

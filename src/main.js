@@ -19,6 +19,8 @@ import {
 } from './llm.js';
 import { codexBridge, ardyBridge } from './tauri-bridge.js';
 
+const MAX_TEXT_LENGTH = 4000;
+
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
 const textInput = $('textInput');
@@ -724,6 +726,10 @@ generateBtn.addEventListener('click', async () => {
     setStatus(t('err.noText'), 'err');
     return;
   }
+  if (text.length > MAX_TEXT_LENGTH) {
+    setStatus(`テキストが長すぎます (最大${MAX_TEXT_LENGTH}文字)`, 'err');
+    return;
+  }
   const authMode = authModeSelect.value;
   const apiKey = apiKeyInput.value.trim();
   const claudeApiKey = claudeApiKeyInput.value.trim();
@@ -982,9 +988,15 @@ $('clearHistoryBtn').addEventListener('click', () => {
 });
 
 // --- VRMアップロード ---
+const MAX_VRM_BYTES = 50 * 1024 * 1024;
+const MAX_VRMA_BYTES = 10 * 1024 * 1024;
 async function loadVRMFile(file) {
   if (!file || !/\.vrm$/i.test(file.name)) {
     setStatus(t('err.pickVrm'), 'err');
+    return;
+  }
+  if (file.size > MAX_VRM_BYTES) {
+    setStatus(`VRMが大きすぎます (最大50MB): ${(file.size/1024/1024).toFixed(1)}MB`, 'err');
     return;
   }
   const url = URL.createObjectURL(file);
@@ -1010,9 +1022,14 @@ vrmFile.addEventListener('change', () => {
 
 // --- 外部VRMAの読み込み再生 (ドラッグ&ドロップ) ---
 async function loadVRMAFile(file) {
+  if (file.size > MAX_VRMA_BYTES) {
+    setStatus(`VRMAが大きすぎます (最大10MB): ${(file.size/1024).toFixed(0)}KB`, 'err');
+    return;
+  }
   try {
     setStatus(t('file.loading', { name: file.name }));
     const buf = await file.arrayBuffer();
+    if (buf.byteLength > MAX_VRMA_BYTES) { setStatus('VRMAが大きすぎます', 'err'); return; }
     await viewer.playVRMA(buf, true);
     showPlaybackBar(true);
     setStatus(t('file.playing', { name: file.name }), 'ok');
@@ -1051,20 +1068,21 @@ if (savedClaudeModel && [...claudeModelSelect.options].some((o) => o.value === s
   claudeModelSelect.value = DEFAULT_CLAUDE_MODEL;
 }
 apiBaseUrlInput.addEventListener('change', () => {
-  localStorage.setItem('openai-base-url', apiBaseUrlInput.value.trim());
-  setApiBase(apiBaseUrlInput.value);
-  fetchLocalModels(apiBaseUrlInput.value.trim());
-  updateApiKeyPlaceholder(apiBaseUrlInput.value.trim());
+  const v = apiBaseUrlInput.value.trim();
+  localStorage.setItem('openai-base-url', v);
+  setApiBase(v);
+  fetchLocalModels(v);
+  updateApiKeyPlaceholder(v);
 });
 
 // ローカルプロバイダではAPIキーが不要な場合があるため、プレースホルダーを更新する
+// 常に password 型を維持 — type=text にすると DevTools/画面録画で漏洩する
 function updateApiKeyPlaceholder(baseUrl) {
+  apiKeyInput.type = 'password';
   if (baseUrl) {
     apiKeyInput.placeholder = 'APIキー (省略可)';
-    apiKeyInput.type = 'text'; // ローカルならセキュリティ上問題なし
   } else {
     apiKeyInput.placeholder = t('apiKey.ph');
-    apiKeyInput.type = 'password';
   }
 }
 
@@ -1388,6 +1406,9 @@ codexLogoutBtn.addEventListener('click', async () => {
   }
 });
 codexBridge.onAccountChanged((status) => refreshCodexStatus(status));
+textInput.addEventListener('input', () => {
+  if (textInput.value.length > MAX_TEXT_LENGTH) textInput.value = textInput.value.slice(0, MAX_TEXT_LENGTH);
+});
 textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateBtn.click();
 });
