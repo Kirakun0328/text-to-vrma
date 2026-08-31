@@ -28,7 +28,8 @@ test('healthはAPI設定状態を返す', async (t) => {
   assert.equal(body.status, 'ok');
   assert.equal(body.service, 'text-to-vrma');
   assert.equal(body.generationConfigured, false);
-  assert.deepEqual(body.engines, ['openai', 'ardy']);
+  assert.deepEqual(body.engines, ['openai', 'claude', 'ardy']);
+  assert.deepEqual(body.configured, { openai: false, claude: false });
 });
 
 test('ルートURLは利用可能なAPI一覧を返す', async (t) => {
@@ -102,6 +103,46 @@ test('不正な入力を400で返す', async (t) => {
   });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error.code, 'invalid_prompt');
+});
+
+test('ClaudeエンジンでANTHROPIC_API_KEYを使って生成する', async (t) => {
+  let received;
+  const api = await startServer({
+    apiKey: '', // OpenAIキーが無くてもClaudeは使える
+    claudeApiKey: 'claude-key',
+    defaultClaudeModel: 'claude-test-model',
+    generateClaude: async (...args) => {
+      received = args;
+      return sampleSpec;
+    },
+  });
+  t.after(api.close);
+
+  const response = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: '手を振る', engine: 'claude' }),
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.engine, 'claude');
+  assert.equal(body.model, 'claude-test-model');
+  assert.equal(received[0], '手を振る');
+  assert.equal(received[1], 'claude-key');
+  assert.equal(received[2], 'claude-test-model');
+  assert.equal(received[3].refine, true);
+});
+
+test('Claudeキーが無ければ503を返す', async (t) => {
+  const api = await startServer({ apiKey: 'openai-key', claudeApiKey: '' });
+  t.after(api.close);
+  const response = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: '手を振る', engine: 'claude' }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, 'provider_not_configured');
 });
 
 test('ARDYエンジンはAPIキー無しでも生成できる', async (t) => {

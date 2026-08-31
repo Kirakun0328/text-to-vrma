@@ -303,11 +303,12 @@ npm run api            # http://127.0.0.1:8787 で起動
 .env を読み込みました
 Text-To-VRMA API listening on http://127.0.0.1:8787
   engine=openai : 未設定 (.env に OPENAI_API_KEY を設定してください)
+  engine=claude : 未設定 (.env に ANTHROPIC_API_KEY を設定してください)
   engine=ardy   : 利用可能 (ARDY-Core-RP-20FPS-Horizon40 / GPU)
 ```
 
 `engine=ardy` は**APIキーなしで使えます** (ARDYローカルエンジンの起動が必要)。
-`engine=openai` はキーが要りますが、ARDYのセットアップは不要です。
+`engine=openai` / `engine=claude` はキーが要りますが、ARDYのセットアップは不要です。
 
 **既定では 127.0.0.1 のみで待ち受ける**ため、同じPC上のアプリからのみ到達できます。
 外部へ公開する場合は `TEXT_TO_MOTION_API_TOKEN` の設定が必須で、未設定なら起動時に
@@ -325,10 +326,10 @@ Text-To-VRMA API listening on http://127.0.0.1:8787
 | フィールド | 既定 | 説明 |
 | --- | --- | --- |
 | `prompt` | (必須) | 動きの指示。1〜4000文字 |
-| `engine` | `openai` | `openai` = LLMキーフレーム / `ardy` = ARDYローカルエンジン |
+| `engine` | `openai` | `openai` / `claude` = LLMキーフレーム / `ardy` = ARDYローカルエンジン |
 | `format` | `json` | `json` は spec、`vrma` は `.vrma` バイナリを返す |
-| `model` | 環境変数 | `openai` では生成モデル、`ardy` では動作分割に使うGPTモデル |
-| `refine` | `true` | `openai` のみ有効な2パス自己修正 |
+| `model` | 環境変数 | `openai`・`claude` では生成モデル、`ardy` では動作分割に使うGPTモデル |
+| `refine` | `true` | `openai`・`claude` で有効な2パス自己修正 |
 | `duration` | — | `ardy` のみ: 生成する長さ (秒) |
 | `waypoints` | — | `ardy` のみ: 移動経路 `[{ "x": 1, "z": 2 }]` |
 
@@ -345,8 +346,16 @@ curl -X POST http://127.0.0.1:8787/v1/motions \
   -d '{"prompt":"お辞儀する"}'
 ```
 
+```bash
+# Claude で生成 (サーバー起動時に ANTHROPIC_API_KEY が必要)
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"お辞儀する","engine":"claude","model":"claude-sonnet-5"}'
+```
+
 環境変数: `PORT` (既定 8787) / `HOST` (既定 127.0.0.1) / `OPENAI_API_KEY` /
-`OPENAI_BASE_URL` / `OPENAI_MODEL` / `ARDY_URL` (既定 `http://127.0.0.1:2337`) /
+`OPENAI_BASE_URL` / `OPENAI_MODEL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` /
+`ARDY_URL` (既定 `http://127.0.0.1:2337`) /
 `TEXT_TO_MOTION_API_TOKEN` / `TEXT_TO_MOTION_CORS_ORIGIN`。
 
 > **ブラウザ上の Web ページから呼ぶ場合のみ** `TEXT_TO_MOTION_CORS_ORIGIN` の設定が必要です

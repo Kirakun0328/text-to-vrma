@@ -21,6 +21,9 @@ async function reportEngines() {
   const openai = process.env.OPENAI_API_KEY
     ? '利用可能'
     : '未設定 (.env に OPENAI_API_KEY を設定してください)';
+  const claude = process.env.ANTHROPIC_API_KEY
+    ? '利用可能'
+    : '未設定 (.env に ANTHROPIC_API_KEY を設定してください)';
   const ardyUrl = (process.env.ARDY_URL || 'http://127.0.0.1:2337').replace(/\/+$/, '');
   let ardy;
   try {
@@ -33,6 +36,7 @@ async function reportEngines() {
     ardy = `未起動 (${ardyUrl})`;
   }
   console.log(`  engine=openai : ${openai}`);
+  console.log(`  engine=claude : ${claude}`);
   console.log(`  engine=ardy   : ${ardy}`);
 }
 

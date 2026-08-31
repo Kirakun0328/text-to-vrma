@@ -181,17 +181,20 @@ const THINKING_MODELS = ['claude-opus-5', 'claude-sonnet-5'];
 // 頭打ちになる。thinkingの量はモデル差が大きい (haiku 4.5 は思考なし) ため
 // モデル別に学習する
 const CLAUDE_RESP_CHARS_KEY = 'claude-resp-chars-ema';
+// localStorageが無いNode環境 (ローカルHTTP API) ではメモリ上に保持する
+const nodeExpectedClaudeChars = new Map();
 function expectedClaudeChars(model) {
-  const saved = Number(localStorage.getItem(`${CLAUDE_RESP_CHARS_KEY}:${model}`));
-  if (saved) return saved;
-  return THINKING_MODELS.includes(model) ? 10000 : 6000;
+  const fallback = THINKING_MODELS.includes(model) ? 10000 : 6000;
+  if (typeof localStorage === 'undefined') {
+    return nodeExpectedClaudeChars.get(model) ?? fallback;
+  }
+  return Number(localStorage.getItem(`${CLAUDE_RESP_CHARS_KEY}:${model}`)) || fallback;
 }
 function updateExpectedClaudeChars(model, actual) {
   const prev = expectedClaudeChars(model);
-  localStorage.setItem(
-    `${CLAUDE_RESP_CHARS_KEY}:${model}`,
-    String(Math.round(prev * 0.6 + actual * 0.4))
-  );
+  const next = Math.round(prev * 0.6 + actual * 0.4);
+  if (typeof localStorage === 'undefined') nodeExpectedClaudeChars.set(model, next);
+  else localStorage.setItem(`${CLAUDE_RESP_CHARS_KEY}:${model}`, String(next));
 }
 
 async function callClaude(messages, apiKey, model, onDelta) {

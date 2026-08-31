@@ -5,14 +5,16 @@ import { autoExpressions } from './autoExpressions.js';
 import { appendNeutralEnding, rescaleSpec, isLoopFriendly } from './specMerge.js';
 import {
   DEFAULT_OPENAI_MODEL,
+  DEFAULT_CLAUDE_MODEL,
   generateMotionWithOpenAI,
+  generateMotionWithClaude,
   planArdySegments,
   setApiBase,
 } from './llm.js';
 
 const JSON_LIMIT = 1024 * 1024;
 const DEFAULT_ARDY_URL = 'http://127.0.0.1:2337';
-const ENGINES = ['openai', 'ardy'];
+const ENGINES = ['openai', 'claude', 'ardy'];
 
 /**
  * ARDYローカルエンジンでモーションを生成する。
@@ -155,10 +157,10 @@ function openApiDocument() {
                 prompt: { type: 'string', maxLength: 4000 },
                 engine: {
                   type: 'string', enum: ENGINES, default: 'openai',
-                  description: 'openai: LLMキーフレーム (OPENAI_API_KEYが必要) / ardy: ローカルARDYエンジン (キー不要)',
+                  description: 'openai: OPENAI_API_KEYが必要 / claude: ANTHROPIC_API_KEYが必要 / ardy: ローカルARDYエンジン (キー不要)',
                 },
-                model: { type: 'string', description: 'openaiでは生成モデル、ardyでは動作分割に使うGPTモデル' },
-                refine: { type: 'boolean', default: true, description: 'openaiのみ有効な2パス自己修正' },
+                model: { type: 'string', description: 'openai・claudeでは生成モデル、ardyでは動作分割に使うGPTモデル' },
+                refine: { type: 'boolean', default: true, description: 'openai・claudeで有効な2パス自己修正' },
                 format: { type: 'string', enum: ['json', 'vrma'], default: 'json' },
                 duration: { type: 'number', exclusiveMinimum: 0, description: 'ardyのみ: 生成する長さ(秒)' },
                 waypoints: {
@@ -187,12 +189,15 @@ function openApiDocument() {
  */
 export function createApiServer({
   apiKey = process.env.OPENAI_API_KEY || '',
+  claudeApiKey = process.env.ANTHROPIC_API_KEY || '',
   apiToken = process.env.TEXT_TO_MOTION_API_TOKEN || '',
   apiBase = process.env.OPENAI_BASE_URL || '',
   defaultModel = process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
+  defaultClaudeModel = process.env.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL,
   corsOrigin = process.env.TEXT_TO_MOTION_CORS_ORIGIN || '',
   ardyUrl = process.env.ARDY_URL || DEFAULT_ARDY_URL,
   generateMotion = generateMotionWithOpenAI,
+  generateClaude = generateMotionWithClaude,
   generateArdy = generateMotionWithArdy,
   build = buildVRMA,
 } = {}) {
@@ -233,7 +238,9 @@ export function createApiServer({
             convert: 'POST /v1/vrma',
           },
           engines: ENGINES,
+          // generationConfigured は openai 用 (旧クライアント互換)。エンジン別は configured を見る
           generationConfigured: Boolean(apiKey),
+          configured: { openai: Boolean(apiKey), claude: Boolean(claudeApiKey) },
           ardyUrl,
         }, corsHeaders);
         return;
@@ -244,8 +251,10 @@ export function createApiServer({
           status: 'ok',
           service: 'text-to-vrma',
           engines: ENGINES,
-          // openaiはキー必須、ardyはローカルエンジンが起動していれば使える
+          // openai/claudeはキー必須、ardyはローカルエンジンが起動していれば使える。
+          // generationConfigured は openai 用 (旧クライアント互換)
           generationConfigured: Boolean(apiKey),
+          configured: { openai: Boolean(apiKey), claude: Boolean(claudeApiKey) },
           ardyUrl,
         }, corsHeaders);
         return;
@@ -266,6 +275,10 @@ export function createApiServer({
         // ARDYはローカルエンジンなのでキー不要 (キーがあれば動作分割に使う)
         if (engine === 'openai' && !apiKey) {
           apiError(res, 503, 'サーバーにOPENAI_API_KEYが設定されていません', 'provider_not_configured', corsHeaders);
+          return;
+        }
+        if (engine === 'claude' && !claudeApiKey) {
+          apiError(res, 503, 'サーバーにANTHROPIC_API_KEYが設定されていません', 'provider_not_configured', corsHeaders);
           return;
         }
         const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
@@ -291,20 +304,28 @@ export function createApiServer({
           return;
         }
 
+        // ardyの既定モデルは動作分割 (GPTが頭) に使うのでOpenAI側の既定を流用する
         const model = typeof body.model === 'string' && body.model.trim()
           ? body.model.trim()
-          : defaultModel;
-        const spec = engine === 'ardy'
-          ? await generateArdy(prompt, {
+          : (engine === 'claude' ? defaultClaudeModel : defaultModel);
+        let spec;
+        if (engine === 'ardy') {
+          spec = await generateArdy(prompt, {
             ardyUrl,
             apiKey,
             model,
             duration: body.duration ?? 0,
             waypoints: body.waypoints ?? null,
-          })
-          : await generateMotion(prompt, apiKey, model, {
+          });
+        } else if (engine === 'claude') {
+          spec = await generateClaude(prompt, claudeApiKey, model, {
             refine: body.refine !== false,
           });
+        } else {
+          spec = await generateMotion(prompt, apiKey, model, {
+            refine: body.refine !== false,
+          });
+        }
 
         if (body.format === 'vrma') {
           const payload = Buffer.from(build(spec));
