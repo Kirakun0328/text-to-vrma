@@ -13,9 +13,13 @@ import {
   generateMotionWithCodex,
   planArdySegments,
   setApiBase,
+  isLocalProvider,
   DEFAULT_OPENAI_MODEL,
   DEFAULT_CLAUDE_MODEL,
 } from './llm.js';
+import { codexBridge, ardyBridge } from './tauri-bridge.js';
+
+const MAX_TEXT_LENGTH = 4000;
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
@@ -60,6 +64,12 @@ const genProgressBar = $('genProgressBar');
 const genProgressText = $('genProgressText');
 const waypointCheck = $('waypointCheck');
 const waypointClearBtn = $('waypointClearBtn');
+const localSettings = $('localSettings');
+const localBaseUrlInput = $('localBaseUrl');
+const localApiKeyInput = $('localApiKey');
+const localModelSelect = $('localModelSelect');
+const localCustomModelInput = $('localCustomModel');
+const localProviderSection = $('localProviderSection');
 const waypointGuide = $('waypointGuide');
 const loopSelect = $('loopSelect');
 
@@ -101,7 +111,6 @@ const historyEl = $('history');
 let lastVRMA = null; // { spec, name }
 const history = []; // [{ name, spec, buffer, loop, duration, text }]
 const MAX_HISTORY = 20;
-const codexBridge = window.codexBridge;
 let codexStatus = null;
 
 function setCodexAuthState(message, kind = '') {
@@ -123,21 +132,27 @@ function renderAuthMode() {
   const codexMode = mode === 'codex' && Boolean(codexBridge);
   const ardyMode = mode === 'ardy';
   const claudeMode = mode === 'claude';
+  const localMode = mode === 'local';
   // OpenAIキー+モデル選択は、api-keyモード(エンジン本体)でもARDYモード(任意の頭脳)でも使う。
   // ARDYモードでは同じ要素をARDYパネル内の「GPT (頭)」欄へ移動して見せる。
   // 復帰先は専用スロットに固定する。以前の #panel.insertBefore() は、#panel の
   // 子ではない codexSettings を referenceNode にしており NotFoundError になっていた。
   const apiSettingsSlot = ardyMode ? ardyGptSlot : apiSettingsHome;
   if (apiSettings.parentElement !== apiSettingsSlot) apiSettingsSlot.append(apiSettings);
-  apiSettings.classList.toggle('hidden', codexMode || claudeMode);
+  apiSettings.classList.toggle('hidden', codexMode || claudeMode || localMode);
+  // api-keyモードではベースURL・カスタムモデル欄を非表示 (純粋なOpenAI専用)
+  // ARDYモードではGPT頭脳としてローカルLLMを使えるため表示
+  localProviderSection.classList.toggle('hidden', !ardyMode);
   claudeSettings.classList.toggle('hidden', !claudeMode);
   codexSettings.classList.toggle('hidden', !codexMode);
   ardySettings.classList.toggle('hidden', !ardyMode);
+  localSettings.classList.toggle('hidden', !localMode);
   // 経由地モード (セクション3) はARDYモード専用なので、それ以外では隠す
   $('waypointRow').classList.toggle('hidden', !ardyMode);
   refineCheck.parentElement.classList.toggle('hidden', ardyMode); // 自己修正はLLMキーフレーム専用
   if (ardyMode) checkArdyHealth();
   else cancelArdyHealthCheck();
+  if (localMode) fetchLocalModelsForLocal(localBaseUrlInput.value.trim());
 }
 
 // --- ARDYローカルエンジン ---
@@ -193,9 +208,9 @@ async function checkArdyHealth({ showFailure = true } = {}) {
     // 起動待ちのポーリング中は、モデル初期化中の接続失敗で
     // 「未起動」表示や起動ボタンを一時的に復活させない。
     if (!showFailure) return false;
-    if (window.ardyBridge) {
+    if (ardyBridge) {
       // 未セットアップならボタンを「セットアップ」に切り替える (JSONを触らせない)
-      const st = await window.ardyBridge.getStatus().catch(() => null);
+      const st = await ardyBridge.getStatus().catch(() => null);
       if (controller.signal.aborted || !isArdyMode()) return false;
       const configured = Boolean(st?.configured);
       ardyStartBtn.textContent = t('btn.engineStart');
@@ -223,7 +238,7 @@ async function checkArdyHealth({ showFailure = true } = {}) {
 async function setupArdyEngine() {
   if (!window.confirm(t('ardy.setupConfirm'))) return;
   try {
-    await window.ardyBridge.setup();
+    await ardyBridge.setup();
     setArdyState(t('ardy.setupStarted'), 'ok');
     watchArdySetup();
   } catch (e) {
@@ -239,8 +254,8 @@ function watchArdySetup() {
 }
 
 async function refreshArdyConfigured() {
-  if (!window.ardyBridge) return;
-  const st = await window.ardyBridge.getStatus().catch(() => null);
+  if (!ardyBridge) return;
+  const st = await ardyBridge.getStatus().catch(() => null);
   if (!st?.configured) return;
   if (ardySetupWatchTimer) { clearInterval(ardySetupWatchTimer); ardySetupWatchTimer = null; }
   // 「セットアップ」表示のままなら「起動」ボタンに切り替える
@@ -389,11 +404,11 @@ async function generateMotionWithArdy(text, { onProgress } = {}) {
   return spec;
 }
 
-// Electron デスクトップ版ではエンジンをアプリから起動できる
+// デスクトップ版ではエンジンをアプリから起動できる
 async function startArdyEngine() {
-  if (!window.ardyBridge) return;
+  if (!ardyBridge) return;
   try {
-    const status = await window.ardyBridge.start().catch((e) => {
+    const status = await ardyBridge.start().catch((e) => {
       if (String(e?.message).includes('ARDY_NOT_CONFIGURED')) {
         setupArdyEngine();
         return null;
@@ -406,7 +421,7 @@ async function startArdyEngine() {
     for (let i = 0; i < 90; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       if (await checkArdyHealth({ showFailure: false })) return;
-      const s = await window.ardyBridge.getStatus();
+      const s = await ardyBridge.getStatus();
       if (!s.running) {
         setArdyState(`❌ ${s.lastError || t('ardy.exited')}`, 'err');
         return;
@@ -467,11 +482,11 @@ async function initializeAuth() {
   const savedMode = localStorage.getItem('openai-auth-mode');
   if (!codexBridge) {
     authModeSelect.querySelector('option[value="codex"]')?.remove();
-    authModeSelect.value = ['ardy', 'claude'].includes(savedMode) ? savedMode : 'api-key';
+    authModeSelect.value = ['ardy', 'claude', 'local'].includes(savedMode) ? savedMode : 'api-key';
     renderAuthMode();
     return;
   }
-  authModeSelect.value = ['codex', 'ardy', 'claude'].includes(savedMode) ? savedMode : 'api-key';
+  authModeSelect.value = ['codex', 'ardy', 'claude', 'local'].includes(savedMode) ? savedMode : 'api-key';
   renderAuthMode();
   await refreshCodexStatus();
 }
@@ -682,10 +697,14 @@ generateBtn.addEventListener('click', async () => {
     setStatus(t('err.noText'), 'err');
     return;
   }
+  if (text.length > MAX_TEXT_LENGTH) {
+    setStatus(`テキストが長すぎます (最大${MAX_TEXT_LENGTH}文字)`, 'err');
+    return;
+  }
   const authMode = authModeSelect.value;
   const apiKey = apiKeyInput.value.trim();
   const claudeApiKey = claudeApiKeyInput.value.trim();
-  if (authMode === 'api-key' && !apiKey) {
+  if (authMode === 'api-key' && !apiKey && !isLocalProvider()) {
     setStatus(t('err.noApiKey'), 'err');
     return;
   }
@@ -699,6 +718,11 @@ generateBtn.addEventListener('click', async () => {
   }
   if (authMode === 'ardy' && !(await checkArdyHealth())) {
     setStatus(t('err.ardyConn'), 'err');
+    return;
+  }
+  const localBaseUrl = localBaseUrlInput.value.trim();
+  if (authMode === 'local' && !localBaseUrl) {
+    setStatus(t('err.noLocalUrl'), 'err');
     return;
   }
   if (!viewer.vrm) {
@@ -719,22 +743,30 @@ generateBtn.addEventListener('click', async () => {
       spec = await generateMotionWithArdy(text, options);
     } else {
       // api-keyモードはカスタムモデル入力があればそれを優先 (OpenAI互換プロバイダ対応)
-      const customModel = apiCustomModelInput.value.trim();
+      const customModel = authMode === 'local'
+        ? localCustomModelInput.value.trim()
+        : apiCustomModelInput.value.trim();
       let model;
       if (authMode === 'codex') model = codexModelSelect.value;
       else if (authMode === 'claude') model = claudeModelSelect.value;
+      else if (authMode === 'local') model = customModel || localModelSelect.value;
       else model = customModel || apiModelSelect.value;
       if (!model) throw new Error(t('err.noModel'));
       if (authMode === 'api-key') {
         localStorage.setItem('openai-api-key', apiKey);
         localStorage.setItem('openai-model', model);
         setApiBase(apiBaseUrlInput.value); // カスタムベースURL (空欄なら公式)
+      } else if (authMode === 'local') {
+        localStorage.setItem('local-base-url', localBaseUrl);
+        localStorage.setItem('local-api-key', localApiKeyInput.value.trim());
+        localStorage.setItem('local-model', model);
+        setApiBase(localBaseUrl);
       } else if (authMode === 'claude') {
         localStorage.setItem('claude-api-key', claudeApiKey);
         localStorage.setItem('claude-model', model);
       }
       localStorage.setItem('refine-enabled', refineCheck.checked ? '1' : '0');
-      const engineLabel = authMode === 'codex' ? 'Codex' : authMode === 'claude' ? 'Claude' : 'OpenAI';
+      const engineLabel = authMode === 'codex' ? 'Codex' : authMode === 'claude' ? 'Claude' : authMode === 'local' ? 'Local LLM' : 'OpenAI';
       setStatus(t('gen.llm', { engine: engineLabel, model }));
       if (authMode === 'codex') {
         spec = await generateMotionWithCodex(text, model, options);
@@ -749,9 +781,10 @@ generateBtn.addEventListener('click', async () => {
           progress.done();
         }
       } else {
+        const effectiveKey = authMode === 'local' ? localApiKeyInput.value.trim() : apiKey;
         const progress = startLLMProgressBar();
         try {
-          spec = await generateMotionWithOpenAI(text, apiKey, model, {
+          spec = await generateMotionWithOpenAI(text, effectiveKey, model, {
             ...options,
             onFraction: progress.update,
           });
@@ -926,9 +959,15 @@ $('clearHistoryBtn').addEventListener('click', () => {
 });
 
 // --- VRMアップロード ---
+const MAX_VRM_BYTES = 50 * 1024 * 1024;
+const MAX_VRMA_BYTES = 10 * 1024 * 1024;
 async function loadVRMFile(file) {
   if (!file || !/\.vrm$/i.test(file.name)) {
     setStatus(t('err.pickVrm'), 'err');
+    return;
+  }
+  if (file.size > MAX_VRM_BYTES) {
+    setStatus(`VRMが大きすぎます (最大50MB): ${(file.size/1024/1024).toFixed(1)}MB`, 'err');
     return;
   }
   const url = URL.createObjectURL(file);
@@ -954,9 +993,14 @@ vrmFile.addEventListener('change', () => {
 
 // --- 外部VRMAの読み込み再生 (ドラッグ&ドロップ) ---
 async function loadVRMAFile(file) {
+  if (file.size > MAX_VRMA_BYTES) {
+    setStatus(`VRMAが大きすぎます (最大10MB): ${(file.size/1024).toFixed(0)}KB`, 'err');
+    return;
+  }
   try {
     setStatus(t('file.loading', { name: file.name }));
     const buf = await file.arrayBuffer();
+    if (buf.byteLength > MAX_VRMA_BYTES) { setStatus('VRMAが大きすぎます', 'err'); return; }
     await viewer.playVRMA(buf, true);
     showPlaybackBar(true);
     setStatus(t('file.playing', { name: file.name }), 'ok');
@@ -995,19 +1039,150 @@ if (savedClaudeModel && [...claudeModelSelect.options].some((o) => o.value === s
   claudeModelSelect.value = DEFAULT_CLAUDE_MODEL;
 }
 apiBaseUrlInput.addEventListener('change', () => {
-  localStorage.setItem('openai-base-url', apiBaseUrlInput.value.trim());
-  setApiBase(apiBaseUrlInput.value);
+  const v = apiBaseUrlInput.value.trim();
+  localStorage.setItem('openai-base-url', v);
+  setApiBase(v);
+  fetchLocalModels(v);
+  updateApiKeyPlaceholder(v);
 });
+
+// ローカルプロバイダではAPIキーが不要な場合があるため、プレースホルダーを更新する
+// 常に password 型を維持 — type=text にすると DevTools/画面録画で漏洩する
+function updateApiKeyPlaceholder(baseUrl) {
+  apiKeyInput.type = 'password';
+  if (baseUrl) {
+    apiKeyInput.placeholder = 'APIキー (省略可)';
+  } else {
+    apiKeyInput.placeholder = t('apiKey.ph');
+  }
+}
+
+// ローカルプロバイダからモデル一覧を取得して apiModelSelect を更新する
+let localModelsFetched = false;
+async function fetchLocalModels(baseUrl) {
+  if (!baseUrl) {
+    // 公式OpenAIに戻した場合はデフォルトモデルリストを復元
+    if (localModelsFetched) {
+      apiModelSelect.innerHTML = '';
+      for (const [val, label] of [
+        ['gpt-5.6-sol', t('model.best')],
+        ['gpt-5.6-terra', t('model.balanced')],
+        ['gpt-5.6-luna', t('model.low')],
+      ]) {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = label;
+        apiModelSelect.appendChild(opt);
+      }
+      const saved = localStorage.getItem('openai-model');
+      if ([...apiModelSelect.options].some((o) => o.value === saved)) {
+        apiModelSelect.value = saved;
+      }
+      localModelsFetched = false;
+    }
+    return;
+  }
+  try {
+    const modelsUrl = !window.__TAURI__
+      ? `/llm-proxy${new URL(baseUrl).pathname}/models`
+      : `${baseUrl}/models`;
+    const res = await fetch(modelsUrl, {
+      signal: AbortSignal.timeout(3000),
+      ...(!window.__TAURI__ ? { headers: { 'X-LLM-Target': baseUrl } } : {}),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const models = (data.data ?? data ?? [])
+      .map((m) => m.id ?? m.name)
+      .filter((id) => typeof id === 'string' && id);
+    if (models.length === 0) return;
+    // モデルリストを動的プロバイダのものに置き換え
+    apiModelSelect.innerHTML = '';
+    for (const id of models) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      apiModelSelect.appendChild(opt);
+    }
+    localModelsFetched = true;
+    // 保存済みモデルがあれば選択
+    const saved = localStorage.getItem('openai-custom-model') || localStorage.getItem('openai-model');
+    if (saved && [...apiModelSelect.options].some((o) => o.value === saved)) {
+      apiModelSelect.value = saved;
+    }
+    console.log(`[Local] Fetched ${models.length} models from ${baseUrl}`);
+  } catch (e) {
+    console.warn('[Local] Failed to fetch models:', e.message);
+  }
+}
 apiCustomModelInput.addEventListener('change', () => {
   localStorage.setItem('openai-custom-model', apiCustomModelInput.value.trim());
 });
 setApiBase(apiBaseUrlInput.value); // 起動時に保存済みのベースURLを反映
+updateApiKeyPlaceholder(apiBaseUrlInput.value);
 refineCheck.checked = localStorage.getItem('refine-enabled') !== '0';
 autoLengthCheck.checked = localStorage.getItem('auto-length') === '1';
 autoLengthCheck.addEventListener('change', () => {
   localStorage.setItem('auto-length', autoLengthCheck.checked ? '1' : '0');
 });
 exprCheck.checked = localStorage.getItem('export-expressions') !== '0';
+
+// --- ローカルLLMモード用 ---
+let localPanelModelsFetched = false;
+async function fetchLocalModelsForLocal(baseUrl) {
+  if (!baseUrl) {
+    if (localPanelModelsFetched) {
+      localModelSelect.innerHTML = '<option value="">モデルを選択</option>';
+      localPanelModelsFetched = false;
+    }
+    return;
+  }
+  try {
+    const modelsUrl = !window.__TAURI__
+      ? `/llm-proxy${new URL(baseUrl).pathname}/models`
+      : `${baseUrl}/models`;
+    const res = await fetch(modelsUrl, {
+      signal: AbortSignal.timeout(3000),
+      ...(!window.__TAURI__ ? { headers: { 'X-LLM-Target': baseUrl } } : {}),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const models = (data.data ?? data ?? [])
+      .map((m) => m.id ?? m.name)
+      .filter((id) => typeof id === 'string' && id);
+    if (models.length === 0) return;
+    localModelSelect.innerHTML = '';
+    for (const id of models) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      localModelSelect.appendChild(opt);
+    }
+    localPanelModelsFetched = true;
+    const saved = localStorage.getItem('local-model');
+    if (saved && [...localModelSelect.options].some((o) => o.value === saved)) {
+      localModelSelect.value = saved;
+    }
+    console.log(`[Local] Fetched ${models.length} models from ${baseUrl}`);
+  } catch (e) {
+    console.warn('[Local] Failed to fetch models:', e.message);
+  }
+}
+localBaseUrlInput.addEventListener('change', () => {
+  const url = localBaseUrlInput.value.trim();
+  localStorage.setItem('local-base-url', url);
+  fetchLocalModelsForLocal(url);
+});
+localApiKeyInput.addEventListener('change', () => {
+  localStorage.setItem('local-api-key', localApiKeyInput.value.trim());
+});
+localCustomModelInput.addEventListener('change', () => {
+  localStorage.setItem('local-custom-model', localCustomModelInput.value.trim());
+});
+// 起動時に保存済みのローカルLLM設定を復元
+localBaseUrlInput.value = localStorage.getItem('local-base-url') || '';
+localApiKeyInput.value = localStorage.getItem('local-api-key') || '';
+localCustomModelInput.value = localStorage.getItem('local-custom-model') || '';
 loopSelect.value = 'auto'; // ループ再生は毎回「自動」で開始 (記憶しない)
 
 // --- 更新チェック: 公開リポジトリの最新バージョンと比較して通知する ---
@@ -1201,7 +1376,10 @@ codexLogoutBtn.addEventListener('click', async () => {
     setCodexAuthState(error.message, 'err');
   }
 });
-codexBridge?.onAccountChanged((status) => refreshCodexStatus(status));
+codexBridge.onAccountChanged((status) => refreshCodexStatus(status));
+textInput.addEventListener('input', () => {
+  if (textInput.value.length > MAX_TEXT_LENGTH) textInput.value = textInput.value.slice(0, MAX_TEXT_LENGTH);
+});
 textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateBtn.click();
 });

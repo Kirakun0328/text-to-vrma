@@ -29,3 +29,6 @@ api-server.error.log
 # Python
 __pycache__/
 *.pyc
+
+# Rust build artifacts
+src-tauri/target/

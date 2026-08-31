@@ -3,52 +3,28 @@
   "private": true,
   "version": "1.1.7",
   "type": "module",
-  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "test": "node --test test/*.test.cjs",
     "api": "node tools/api-server.mjs",
     "preview": "vite preview",
-    "app:dev": "electron .",
-    "app:build": "vite build && electron-builder --win portable"
-  },
-  "build": {
-    "appId": "com.kiratchi.text-to-vrma",
-    "productName": "Text-To-VRMA",
-    "electronDist": "node_modules/electron/dist",
-    "asar": false,
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "src/**/*",
-      "tools/api-server.mjs",
-      "tools/ardy-engine/**/*",
-      "LICENSE",
-      "THIRD_PARTY_NOTICES.md",
-      "!dist/models/*.vrm"
-    ],
-    "directories": {
-      "output": "release"
-    },
-    "win": {
-      "target": [
-        "portable"
-      ]
-    },
-    "portable": {
-      "artifactName": "Text-To-VRMA-v${version}.exe"
-    }
+    "app:dev": "tauri dev",
+    "app:build": "tauri build"
   },
   "dependencies": {
     "@pixiv/three-vrm": "^3.4.4",
     "@pixiv/three-vrm-animation": "^3.4.4",
     "gif.js": "^0.2.0",
-    "three": "^0.180.0"
+    "three": "^0.180.0",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-shell": "^2",
+    "@tauri-apps/plugin-fs": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-opener": "^2"
   },
   "devDependencies": {
-    "electron": "^43.1.1",
-    "electron-builder": "^26.15.3",
+    "@tauri-apps/cli": "^2",
     "vite": "^7.3.0"
   }
 }

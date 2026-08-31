@@ -1,6 +1,7 @@
 import { t } from './i18n.js';
 // llm.js — OpenAI API でテキストからモーション spec を生成する
 import { BONE_NAMES, EXPRESSION_PRESETS } from './vrmaBuilder.js';
+import { codexBridge } from './tauri-bridge.js';
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
@@ -443,7 +444,7 @@ function applyWaveCorrection(spec) {
   }
 }
 
-// OpenAI互換プロバイダ対応: ベースURLを差し替え可能にする (OpenRouter / DeepSeek / Ollama 等)
+// OpenAI互換プロバイダ対応: ベースURLを差し替え可能にする (OpenRouter / DeepSeek / Ollama / LM Studio 等)
 const DEFAULT_API_BASE = 'https://api.openai.com/v1';
 let API_BASE = DEFAULT_API_BASE;
 export function setApiBase(url) {
@@ -451,16 +452,34 @@ export function setApiBase(url) {
   API_BASE = u || DEFAULT_API_BASE;
 }
 
+// ローカルプロバイダ (Ollama / LM Studio 等) かどうかを判定する。
+// response_format: json_object は LM Studio が未対応のため、ローカルでは送らない。
+export function isLocalProvider() {
+  return API_BASE !== DEFAULT_API_BASE
+    && !API_BASE.includes('openai.com')
+    && !API_BASE.includes('openrouter.ai');
+}
+
 async function callOpenAI(messages, apiKey, model, onDelta) {
-  const res = await fetch(`${API_BASE}/chat/completions`, {
+  const local = isLocalProvider();
+  // ブラウザ + ローカルプロバイダ = CORSブロック → Viteプロキシ経由で転送
+  const useProxy = local && !window.__TAURI__;
+  const apiPath = API_BASE.replace(/\/+$/, '');
+  const url = useProxy
+    ? `/llm-proxy${new URL(API_BASE).pathname}/chat/completions`
+    : `${apiPath}/chat/completions`;
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      ...(useProxy ? { 'X-LLM-Target': API_BASE } : {}),
     },
     body: JSON.stringify({
       model,
-      response_format: { type: 'json_object' },
+      // LM Studio は response_format: json_object に 400 を返すため、
+      // ローカルプロバイダでは送らない (parseJsonLenient で JSON を抽出する)
+      ...(!local && { response_format: { type: 'json_object' } }),
       messages,
       ...(onDelta ? { stream: true } : {}),
     }),
@@ -549,6 +568,10 @@ export async function generateMotionWithOpenAI(
   const expected = expectedResponseChars();
   const pass1End = refine ? 0.6 : 1.0;
 
+  // ローカルプロバイダは response_format: json_object 未対応のため、
+  // JSONを柔軟にパースする (parseJsonLenient は Claude 用に既存)
+  const parse = isLocalProvider() ? parseJsonLenient : JSON.parse;
+
   // 1パス目: 生成
   const draft = await callOpenAI(
     [
@@ -560,7 +583,7 @@ export async function generateMotionWithOpenAI(
     onFraction && ((chars) => onFraction(Math.min(0.99, (chars / expected) * pass1End), 1))
   );
   updateExpectedResponseChars(draft.length);
-  let spec = JSON.parse(draft);
+  let spec = parse(draft);
   validateSpec(spec);
 
   // 2パス目: 自己修正 (失敗しても1パス目の結果を使う)
@@ -578,7 +601,7 @@ export async function generateMotionWithOpenAI(
         model,
         onFraction && ((chars) => onFraction(Math.min(0.99, pass1End + (chars / expected) * (1 - pass1End)), 2))
       );
-      const refinedSpec = JSON.parse(refined);
+      const refinedSpec = parse(refined);
       validateSpec(refinedSpec);
       spec = refinedSpec;
     } catch (e) {
@@ -700,15 +723,15 @@ export async function planArdySegments(text, apiKey, model, { waypointCount = 0,
 }
 
 /**
- * Electron の Codex CLI (ChatGPT/Codex サブスクリプション) でモーション spec を生成する。
- * 認証情報は preload の限定 IPC 内に留まり、レンダラーには渡されない。
+ * Codex CLI (ChatGPT/Codex サブスクリプション) でモーション spec を生成する。
+ * 認証情報はバックエンドの IPC 内に留まり、レンダラーには渡されない。
  */
 export async function generateMotionWithCodex(
   text,
   model,
   { refine = true, onProgress } = {}
 ) {
-  if (!window.codexBridge) {
+  if (!codexBridge) {
     throw new Error('Codex認証はデスクトップ版でのみ利用できます。');
   }
 
@@ -722,7 +745,7 @@ export async function generateMotionWithCodex(
       ? t('gen.codexRefine', { model })
       : t('gen.codex', { model })
   );
-  const spec = await window.codexBridge.generateMotion({
+  const spec = await codexBridge.generateMotion({
     model,
     systemPrompt: SYSTEM_PROMPT,
     prompt: userMsg,

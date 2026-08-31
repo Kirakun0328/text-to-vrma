@@ -625,15 +625,21 @@ def generate_spec(
 
 # CORSを許可する呼び出し元 (アプリ本体 app:// / ローカル開発 / file://) のみに限定する。
 # 無関係なWebサイトから 127.0.0.1:2337 を叩かれてGPU/メモリを消費されるのを防ぐ
-_ALLOWED_ORIGIN_PREFIXES = ("app://", "http://localhost", "http://127.0.0.1", "file://")
+# NOTE: prefix check alone allows http://localhost.evil.com — use strict match
+_ALLOWED_ORIGIN_RE = re.compile(r"^(app://.*|file://.*|http://localhost(?::\d+)?/?$|http://127\.0\.0\.1(?::\d+)?/?$|http://\[::1\](?::\d+)?/?$)")
 # リクエストボディの上限 (巨大bodyによるメモリ枯渇DoS対策)
-MAX_REQUEST_BYTES = 8 * 1024 * 1024  # 8MB
+MAX_REQUEST_BYTES = 2 * 1024 * 1024  # 2MB (was 8MB — prompt+waypoints never need more)
 
 
 class Handler(BaseHTTPRequestHandler):
     def _cors_origin(self) -> str:
         o = self.headers.get("Origin", "")
-        return o if o.startswith(_ALLOWED_ORIGIN_PREFIXES) else "null"
+        return o if _ALLOWED_ORIGIN_RE.match(o) else "null"
+
+    def _is_allowed_origin(self) -> bool:
+        o = self.headers.get("Origin", "")
+        # No Origin (curl, Tauri ipc) is allowed; browser cross-site with bad Origin is blocked on mutating calls
+        return o == "" or bool(_ALLOWED_ORIGIN_RE.match(o))
 
     def _send(self, code: int, payload: dict):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -696,6 +702,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        if not self._is_allowed_origin():
+            self._send(403, {"error": "forbidden origin"})
+            return
         if not BOOT["ready"]:
             self._send(503, {"error": "loading", "progress": round(BOOT["fraction"], 3)})
             return
@@ -709,8 +718,16 @@ class Handler(BaseHTTPRequestHandler):
             req = self._read_json_body()
             if req is None:
                 return  # サイズ超過 (413応答済み)
-            text = str(req.get("text", "")).strip()
+            # Input size guard: text+segments bounded (prompt injection / DoS)
+            text = str(req.get("text", ""))[:4000].strip()
             segments_req = req.get("segments")
+            if segments_req is not None and len(segments_req) > 12:
+                self._send(400, {"error": "too many segments (max 12)"})
+                return
+            waypoints = req.get("waypoints")
+            if waypoints is not None and len(waypoints) > 64:
+                self._send(400, {"error": "too many waypoints (max 64)"})
+                return
             duration = req.get("duration")  # 省略時はプロンプトから自動推定
             if not text and not segments_req:
                 self._send(400, {"error": "text or segments is required"})
@@ -735,6 +752,15 @@ class Handler(BaseHTTPRequestHandler):
         行の種類: {"type":"meta",...} → {"type":"chunk",tracks,hips}× → {"type":"final","spec":...}
         エラー時は {"type":"error","error":...}
         """
+        if not self._is_allowed_origin():
+            try:
+                req = self._read_json_body()
+                if req is None:
+                    return
+            except Exception:
+                pass
+            self._send(403, {"error": "forbidden origin"})
+            return
         try:
             req = self._read_json_body()
             if req is None:
@@ -742,8 +768,11 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._send(400, {"error": str(e)})
             return
-        text = str(req.get("text", "")).strip()
+        text = str(req.get("text", ""))[:4000].strip()
         segments_req = req.get("segments")
+        if segments_req is not None and len(segments_req) > 12:
+            self._send(400, {"error": "too many segments (max 12)"})
+            return
         if not text and not segments_req:
             self._send(400, {"error": "text or segments is required"})
             return
