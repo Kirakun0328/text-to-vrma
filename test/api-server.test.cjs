@@ -123,6 +123,70 @@ test('不正な入力を400で返す', async (t) => {
   assert.equal((await response.json()).error.code, 'invalid_prompt');
 });
 
+test('APIキーの値はレスポンスに一切含まれない', async (t) => {
+  // 呼び出し側はキーを「使える」が「見える」ことはあってはならない
+  const secret = 'sk-SECRET-must-not-leak-123';
+  const api = await startServer({
+    apiKey: secret,
+    claudeApiKey: `${secret}-claude`,
+    generateMotion: async () => { throw new Error(`Incorrect API key provided: ${secret}`); },
+  });
+  t.after(api.close);
+
+  const health = await (await fetch(`${api.url}/health`)).text();
+  const root = await (await fetch(api.url)).text();
+  const openapi = await (await fetch(`${api.url}/openapi.json`)).text();
+  const failed = await (await fetch(`${api.url}/v1/motions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: '手を振る' }),
+  })).text();
+
+  for (const [name, body] of Object.entries({ health, root, openapi, failed })) {
+    assert.ok(!body.includes(secret), `${name} にAPIキーが含まれている: ${body}`);
+  }
+  // プロバイダのエラー文面ごと返さず、汎用メッセージに置き換わること
+  assert.match(failed, /モーションの処理に失敗しました/);
+});
+
+test('外部Originからのリクエストを403で弾く', async (t) => {
+  const api = await startServer({ apiKey: 'test-key' });
+  t.after(api.close);
+
+  const crossOrigin = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+    body: JSON.stringify({ prompt: '手を振る' }),
+  });
+  assert.equal(crossOrigin.status, 403);
+  assert.equal((await crossOrigin.json()).error.code, 'forbidden_origin');
+
+  const crossSite = await fetch(`${api.url}/health`, {
+    headers: { 'Sec-Fetch-Site': 'cross-site' },
+  });
+  assert.equal(crossSite.status, 403);
+});
+
+test('非ブラウザのクライアント (Origin無し) は素通りする', async (t) => {
+  // curl / Unity / Python などは Origin も Sec-Fetch-Site も送らない
+  const api = await startServer({ apiKey: 'test-key', generateMotion: async () => sampleSpec });
+  t.after(api.close);
+  const response = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: '手を振る' }),
+  });
+  assert.equal(response.status, 200);
+});
+
+test('対応外のHTTPメソッドを405で弾く', async (t) => {
+  const api = await startServer({ apiKey: 'test-key' });
+  t.after(api.close);
+  const response = await fetch(`${api.url}/v1/motions`, { method: 'DELETE' });
+  assert.equal(response.status, 405);
+  assert.equal((await response.json()).error.code, 'method_not_allowed');
+});
+
 test('単純リクエスト (text/plain) のPOSTを415で弾く', async (t) => {
   // ブラウザからのCSRFはプリフライトが飛ばない単純リクエストで成立するため、
   // application/json を必須にして塞ぐ

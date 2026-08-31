@@ -17,6 +17,23 @@ const DEFAULT_ARDY_URL = 'http://127.0.0.1:2337';
 const ENGINES = ['openai', 'claude', 'ardy'];
 // DNSリバインディング対策で許可するHostヘッダー (ポート番号は除いて比較する)
 const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1', '[::1]'];
+const ALLOWED_METHODS = ['GET', 'POST', 'OPTIONS'];
+// デスクトップ版のレンダラーのオリジン
+const APP_ORIGIN = 'app://bundle';
+
+// ブラウザは同一オリジン以外からのリクエストにOriginを付ける。
+// curl / Unity / Python など非ブラウザのクライアントは付けないので、
+// 「付いていれば検証する」方式にすると通常の利用を壊さずに外部ページだけ弾ける
+function isAllowedOrigin(origin, corsOrigin) {
+  if (!origin) return true;
+  if (origin === APP_ORIGIN) return true;
+  if (corsOrigin && origin === corsOrigin) return true;
+  try {
+    return LOOPBACK_HOSTS.includes(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * ARDYローカルエンジンでモーションを生成する。
@@ -230,6 +247,23 @@ export function createApiServer({
         apiError(res, 403, 'ループバック以外のHostヘッダーは受け付けません', 'invalid_host', corsHeaders);
         return;
       }
+    }
+
+    if (!ALLOWED_METHODS.includes(req.method)) {
+      apiError(res, 405, `対応していないメソッドです (${ALLOWED_METHODS.join(' / ')} のみ)`, 'method_not_allowed', corsHeaders);
+      return;
+    }
+
+    // 外部Webページからの実行を弾く。ブラウザはクロスオリジン時にOriginを付け、
+    // Sec-Fetch-Site: cross-site も送る。非ブラウザのクライアントはどちらも
+    // 付けないため、通常の利用 (curl / Unity / Python 等) は素通りする
+    if (!isAllowedOrigin(req.headers.origin, corsOrigin)) {
+      apiError(res, 403, '許可されていないOriginからのリクエストです', 'forbidden_origin', corsHeaders);
+      return;
+    }
+    if (req.headers['sec-fetch-site'] === 'cross-site') {
+      apiError(res, 403, 'クロスサイトからのリクエストは受け付けません', 'forbidden_origin', corsHeaders);
+      return;
     }
 
     // ブラウザのCSRF対策: application/json はプリフライトが必須になるため、
