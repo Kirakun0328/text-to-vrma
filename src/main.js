@@ -1174,9 +1174,9 @@ async function fetchLocalModelsForLocal(baseUrl) {
     if (saved && [...localModelSelect.options].some((o) => o.value === saved)) {
       localModelSelect.value = saved;
     }
-    console.log(`[Local-LLM] Fetched ${models.length} models from ${baseUrl}`);
+    console.log(`[Local] Fetched ${models.length} models from ${baseUrl}`);
   } catch (e) {
-    console.warn('[Local-LLM] Failed to fetch models:', e.message);
+    console.warn('[Local] Failed to fetch models:', e.message);
   }
 }
 localBaseUrlInput.addEventListener('change', () => {
