@@ -422,6 +422,24 @@
         <summary data-i18n="adv">詳細設定</summary>
         <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="adv.ardyUrl">ARDYエンジンの接続先 (通常は変更不要)</label>
         <input type="text" id="ardyUrl" value="http://127.0.0.1:2337" title="ARDYエンジンサーバーのURL" />
+
+        <div id="localApiRow" class="hidden">
+          <label class="sub" style="display:block;margin:14px 0 3px" data-i18n="adv.localApi">ローカルHTTP API (他のアプリから呼び出す)</label>
+          <label class="check" title="他のアプリやスクリプトからモーション生成を呼び出せるようにします。既定ではオフで、有効にしたときだけ127.0.0.1でポートを開きます。" data-i18n-title="localApi.title">
+            <input type="checkbox" id="localApiEnable" />
+            <span data-i18n="localApi.label">🔌 ローカルAPIを有効にする</span>
+          </label>
+          <input type="number" id="localApiPort" value="8787" min="1" max="65535" title="待ち受けポート" data-i18n-title="localApi.portTitle" />
+          <div id="localApiState" class="auth-state" data-i18n="localApi.stopped">停止中</div>
+          <div id="localApiTokenRow" class="hidden">
+            <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="localApi.token">アクセストークン (Authorization: Bearer に指定)</label>
+            <input type="text" id="localApiToken" readonly />
+            <div class="row">
+              <button id="localApiCopyBtn" data-i18n="localApi.copy">📋 コピー</button>
+              <button id="localApiRegenBtn" data-i18n="localApi.regen">🔄 再生成</button>
+            </div>
+          </div>
+        </div>
       </details>
 
       <div id="appFooter">

@@ -5,7 +5,7 @@ import { Viewer } from './viewer.js';
 import { buildVRMA } from './vrmaBuilder.js';
 import { idleSpec } from './idleMotion.js';
 import { autoExpressions } from './autoExpressions.js';
-import { appendNeutralEnding } from './specMerge.js';
+import { appendNeutralEnding, rescaleSpec, isLoopFriendly } from './specMerge.js';
 import { exportGIF, exportWebM, downloadBlob } from './recorder.js';
 import {
   generateMotionWithOpenAI,
@@ -81,35 +81,6 @@ langSelect.addEventListener('change', () => {
   updateWaypointUI();
 });
 applyStaticI18n();
-
-// specを目標秒数へ時間リスケールする (全キーフレームの時刻を比例変換)。
-// LLMキーフレーム生成で「長さ(秒)」指定を確実に反映するために使う
-function rescaleSpec(spec, target) {
-  const cur = Number(spec?.duration) || 0;
-  if (!cur || !target || Math.abs(cur - target) < 0.02) {
-    if (spec) spec.duration = target || cur;
-    return spec;
-  }
-  const f = target / cur;
-  for (const keys of Object.values(spec.tracks || {})) for (const k of keys) k.t *= f;
-  for (const k of spec.hips || []) k.t *= f;
-  for (const keys of Object.values(spec.expressions || {})) for (const k of keys) k.t *= f;
-  spec.duration = target;
-  return spec;
-}
-
-// その場の動き (移動が少なく、終了時に開始位置付近へ戻る) ならループ向きと判定する
-function isLoopFriendly(spec) {
-  const hips = spec.hips;
-  if (!hips?.length) return true;
-  const first = hips[0].p;
-  const last = hips.at(-1).p;
-  const endOffset = Math.hypot(last[0] - first[0], last[2] - first[2]);
-  const maxOffset = Math.max(
-    ...hips.map((k) => Math.hypot(k.p[0] - first[0], k.p[2] - first[2]))
-  );
-  return endOffset < 0.35 && maxOffset < 1.5;
-}
 
 // ARDYモードの経由地 (床クリックで配置、生成リクエストに同送)
 // 個数は無制限。ただし経路の所要時間 (歩速1m/s換算+2秒) が安全上限に収まる範囲まで
@@ -1413,5 +1384,84 @@ textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateBtn.click();
 });
 
+// --- ローカルHTTP API (デスクトップ版のみ・オプトイン) ---
+const localApiBridge = window.localApiBridge;
+const localApiRow = $('localApiRow');
+const localApiEnable = $('localApiEnable');
+const localApiPort = $('localApiPort');
+const localApiState = $('localApiState');
+const localApiTokenRow = $('localApiTokenRow');
+const localApiToken = $('localApiToken');
+
+function renderLocalApiStatus(status) {
+  if (!status) return;
+  localApiEnable.checked = status.running;
+  localApiTokenRow.classList.toggle('hidden', !status.token);
+  if (status.token) localApiToken.value = status.token;
+  if (status.lastError) {
+    localApiState.textContent = `❌ ${status.lastError}`;
+    localApiState.className = 'auth-state err';
+  } else if (status.running) {
+    localApiState.textContent = t('localApi.running', { url: status.url });
+    localApiState.className = 'auth-state ok';
+  } else {
+    localApiState.textContent = t('localApi.stopped');
+    localApiState.className = 'auth-state';
+  }
+}
+
+// サーバーは環境変数ではなくアプリの設定 (localStorage) からキーを受け取る。
+// 利用者がアプリで設定済みのキーをそのままAPIでも使えるようにするため
+function localApiConfig() {
+  return {
+    port: Number(localApiPort.value) || 8787,
+    openaiApiKey: (localStorage.getItem('openai-api-key') || '').trim(),
+    claudeApiKey: (localStorage.getItem('claude-api-key') || '').trim(),
+    openaiBaseUrl: (localStorage.getItem('openai-base-url') || '').trim(),
+    openaiModel: (localStorage.getItem('openai-model') || '').trim(),
+    claudeModel: (localStorage.getItem('claude-model') || '').trim(),
+  };
+}
+
+async function initLocalApi() {
+  if (!localApiBridge) return; // ブラウザ版では出さない
+  localApiRow.classList.remove('hidden');
+  localApiPort.value = localStorage.getItem('local-api-port') || '8787';
+
+  const status = await localApiBridge.getStatus().catch(() => null);
+  renderLocalApiStatus(status);
+  // 前回有効にしていたら復帰させる
+  if (localStorage.getItem('local-api-enabled') === '1' && !status?.running) {
+    renderLocalApiStatus(await localApiBridge.start(localApiConfig()));
+  }
+
+  localApiEnable.addEventListener('change', async () => {
+    const enabled = localApiEnable.checked;
+    localStorage.setItem('local-api-enabled', enabled ? '1' : '0');
+    localApiState.textContent = t(enabled ? 'localApi.starting' : 'localApi.stopping');
+    renderLocalApiStatus(enabled
+      ? await localApiBridge.start(localApiConfig())
+      : await localApiBridge.stop());
+  });
+
+  localApiPort.addEventListener('change', async () => {
+    localStorage.setItem('local-api-port', String(Number(localApiPort.value) || 8787));
+    if (!localApiEnable.checked) return;
+    await localApiBridge.stop();
+    renderLocalApiStatus(await localApiBridge.start(localApiConfig()));
+  });
+
+  $('localApiCopyBtn').addEventListener('click', async () => {
+    await navigator.clipboard.writeText(localApiToken.value).catch(() => {});
+    setStatus(t('localApi.copied'), 'ok');
+  });
+
+  $('localApiRegenBtn').addEventListener('click', async () => {
+    renderLocalApiStatus(await localApiBridge.regenerateToken());
+    setStatus(t('localApi.regenerated'), 'ok');
+  });
+}
+
 initializeAuth();
+initLocalApi();
 init();

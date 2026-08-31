@@ -252,6 +252,8 @@ spec 以降は両モード共通:
 | `electron/codex-client.cjs` | Codex app-server接続 / ChatGPT認証 / モデル取得 / 一時スレッドでの生成 |
 | `electron/ardy-client.cjs` | ARDYエンジンサーバーの起動・監視 (デスクトップ版) |
 | `electron/preload.cjs` | 認証情報を公開しない限定IPCブリッジ |
+| `src/apiServer.js` | ローカルHTTP API本体 (OpenAI / ARDY 両エンジンに対応) |
+| `tools/api-server.mjs` | APIサーバーの起動エントリ (`npm run api`) |
 | `tools/ardy-engine/server.py` | ARDY常駐サーバー: 生成・日本語翻訳・経由地制約・進捗API |
 | `tools/ardy-engine/retarget.py` | ARDY Coreスケルトン → VRM Humanoid リターゲット |
 | `tools/ardy-engine/install.ps1` | エンジンのワンコマンドセットアップ (Windows) |
@@ -282,6 +284,128 @@ LLM が生成する中間表現です:
   プレビューでは常に再生され、`.vrma` 保存時は含めるかどうかを選択できます
   (再生側アプリが VRMA の表情トラックに対応している必要があります)
 - 座標規約: モデルは +Z 正面 / +X が左手側 (VRM 1.0 準拠)
+
+## ローカルHTTP API (開発者向け・試験的機能)
+
+> **v1.1.7 で追加した試験的機能です。** 特に ARDY エンジン経由の生成は
+> 検証が浅く、インターフェースも今後変わる可能性があります。
+> **実際に使ってみた感想・不具合報告を歓迎します** —
+> [Issues](https://github.com/Kirakun0328/text-to-vrma/issues) までどうぞ。
+
+他のアプリやスクリプトから Text-To-VRMA を呼び出すためのローカルAPIサーバーです。
+Unity / Blender / 自作ツール / シェルスクリプトなどから、テキストを投げて
+モーション spec や `.vrma` を受け取れます。
+
+```bash
+cp .env.example .env   # 初回のみ。OPENAI_API_KEY を書いておく (ARDYだけなら不要)
+npm run api            # http://127.0.0.1:8787 で起動
+```
+
+`.env` はリポジトリ直下に置けば起動時に自動で読まれます (Gitには入りません)。
+起動すると、どのエンジンが今すぐ使えるかが表示されます:
+
+```text
+.env を読み込みました
+Text-To-VRMA API listening on http://127.0.0.1:8787
+  engine=openai : 未設定 (.env に OPENAI_API_KEY を設定してください)
+  engine=claude : 未設定 (.env に ANTHROPIC_API_KEY を設定してください)
+  engine=ardy   : 利用可能 (ARDY-Core-RP-20FPS-Horizon40 / GPU)
+```
+
+`engine=ardy` は**APIキーなしで使えます** (ARDYローカルエンジンの起動が必要)。
+`engine=openai` / `engine=claude` はキーが要りますが、ARDYのセットアップは不要です。
+
+### デスクトップ版から使う (v1.1.7〜)
+
+コマンドを使わず、アプリの「詳細設定 → ローカルHTTP API」から有効にできます。
+**既定はオフ**で、チェックを入れたときだけ 127.0.0.1 にポートを開きます。
+
+- アプリに設定済みの OpenAI / Claude のキーをそのまま使うので、二重の設定は不要です
+- **アクセストークンが必須**です。設定欄に表示されるので、呼び出す側の
+  `Authorization: Bearer <token>` に指定してください。インストールごとに固定なので
+  外部ツール側は一度書けば済みます。漏れた場合は「🔄 再生成」で無効化できます
+- ポートが使用中の場合はその旨を表示します (別のポートを指定してください)
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Authorization: Bearer <アプリに表示されたトークン>" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"前に歩いて手を振る","engine":"ardy","format":"vrma"}' \
+  -o walk.vrma
+```
+
+### セキュリティ
+
+**既定では 127.0.0.1 のみで待ち受ける**ため、同じPC上のアプリからのみ到達できます。
+外部へ公開する場合は `TEXT_TO_MOTION_API_TOKEN` の設定が必須で、未設定なら起動時に
+エラーになります (その場合は全リクエストに `Authorization: Bearer <token>` が必要)。
+
+| エンドポイント | 説明 |
+| --- | --- |
+| `GET /health` | 稼働状態・利用可能エンジン・キー設定の有無 |
+| `GET /openapi.json` | OpenAPI 3.1 定義 |
+| `POST /v1/motions` | テキストからモーションを生成 |
+| `POST /v1/vrma` | 既存の spec を `.vrma` に変換 (キー不要) |
+
+`POST /v1/motions` のリクエスト:
+
+| フィールド | 既定 | 説明 |
+| --- | --- | --- |
+| `prompt` | (必須) | 動きの指示。1〜4000文字 |
+| `engine` | `openai` | `openai` / `claude` = LLMキーフレーム / `ardy` = ARDYローカルエンジン |
+| `format` | `json` | `json` は spec、`vrma` は `.vrma` バイナリを返す |
+| `model` | 環境変数 | `openai`・`claude` では生成モデル、`ardy` では動作分割に使うGPTモデル |
+| `refine` | `true` | `openai`・`claude` で有効な2パス自己修正 |
+| `duration` | — | `ardy` のみ: 生成する長さ (秒) |
+| `waypoints` | — | `ardy` のみ: 移動経路 `[{ "x": 1, "z": 2 }]` |
+
+```bash
+# ARDYローカルエンジンで生成 (APIキー不要。エンジンの起動が必要)
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"前に歩いて手を振る","engine":"ardy","format":"vrma"}' \
+  -o walk.vrma
+
+# OpenAI APIキーで生成 (サーバー起動時に OPENAI_API_KEY が必要)
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"お辞儀する"}'
+```
+
+```bash
+# Claude で生成 (サーバー起動時に ANTHROPIC_API_KEY が必要)
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"お辞儀する","engine":"claude","model":"claude-sonnet-5"}'
+```
+
+環境変数: `PORT` (既定 8787) / `HOST` (既定 127.0.0.1) / `OPENAI_API_KEY` /
+`OPENAI_BASE_URL` / `OPENAI_MODEL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` /
+`ARDY_URL` (既定 `http://127.0.0.1:2337`) /
+`TEXT_TO_MOTION_API_TOKEN` / `TEXT_TO_MOTION_CORS_ORIGIN`。
+
+悪意あるWebページから勝手に叩かれないよう、以下を多層で防いでいます。
+
+| 対策 | 内容 |
+| --- | --- |
+| バインド先 | 127.0.0.1 のみ。外部公開は `TEXT_TO_MOTION_API_TOKEN` 必須 |
+| Host検証 | ループバック名以外を403 (DNSリバインディング対策) |
+| Origin検証 | 付いていれば検証。外部オリジンを403 |
+| Sec-Fetch-Site | `cross-site` を403 |
+| Content-Type | POSTは `application/json` のみ (それ以外は415) |
+| メソッド | GET / POST / OPTIONS 以外は405 |
+| CORS | 既定でヘッダーを返さない (ワイルドカードは使わない) |
+| サイズ上限 | リクエスト本文 1 MiB |
+| トークン | デスクトップ版では必須。CLIでも `TEXT_TO_MOTION_API_TOKEN` で有効化 |
+
+APIキーの値がレスポンスに含まれないことはテストで固定しています。
+ただし**APIに到達できる相手はキーを見なくても「使える」**点には注意してください
+(生成が走り、利用料が消費されます)。デスクトップ版でトークンを必須にしているのは
+このためです。
+
+> **ブラウザ上の Web ページから呼ぶ場合のみ** `TEXT_TO_MOTION_CORS_ORIGIN` の設定が必要です
+> (既定ではCORSヘッダーを返さないため、ブラウザ側がブロックします)。
+> curl・Python・Unity・Node などブラウザ外のクライアントには制限はありません。
 
 ## 注意事項
 
