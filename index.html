@@ -3,9 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- CSP: 万一のXSSでもスクリプト実行や外部読み込みを封じる (script-srcは'self'のみ)。
-       connect-srcはOpenAI/Claude/互換API(https)とローカルARDYエンジンを許可 -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' blob: https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'none'" />
+  <!-- CSP is managed by tauri.conf.json — do not add a meta CSP tag here -->
   <title>Text-To-VRMA — VRM特化型Text-To-Motionツール</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕺</text></svg>" />
   <style>
@@ -282,6 +280,7 @@
             <option value="api-key" data-i18n="engine.apiKey">OpenAI APIキー</option>
             <option value="claude" data-i18n="engine.claude">Claude API</option>
             <option value="codex" data-i18n="engine.codex">Codexサブスクリプション</option>
+            <option value="local" data-i18n="engine.local">ローカルLLM / OpenAI互換</option>
             <option value="ardy" data-i18n="engine.ardy">ARDYローカルエンジン</option>
           </select>
         </div>
@@ -301,6 +300,15 @@
               <input type="text" id="apiCustomModel" placeholder="例: llama3.1 / deepseek-chat" data-i18n-placeholder="api.customModelPh" />
             </div>
           </div>
+        </div>
+        <div id="localSettings" class="auth-box hidden">
+          <input type="text" id="localBaseUrl" placeholder="http://localhost:11434/v1 (Ollama) / http://localhost:1234/v1 (LM Studio)" data-i18n-placeholder="api.baseUrl" />
+          <input type="password" id="localApiKey" placeholder="APIキー (省略可)" data-i18n-placeholder="apiKey.ph" />
+          <select id="localModelSelect">
+            <option value="">モデルを取得中...</option>
+          </select>
+          <input type="text" id="localCustomModel" placeholder="モデル名を手入力" data-i18n-placeholder="api.customModelPh" />
+          <p class="sub" style="margin:4px 0 0" data-i18n="api.baseUrlNote">空欄なら公式OpenAI。ローカルプロバイダではAPIキー不要の場合があります。</p>
         </div>
         <div id="claudeSettings" class="auth-box hidden">
           <input type="password" id="claudeApiKey" placeholder="Claude APIキー (sk-ant-...)" data-i18n-placeholder="claudeKey.ph" />

@@ -1,6 +1,7 @@
 import { t } from './i18n.js';
 // llm.js — OpenAI API でテキストからモーション spec を生成する
 import { BONE_NAMES, EXPRESSION_PRESETS } from './vrmaBuilder.js';
+import { codexBridge } from './tauri-bridge.js';
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 
@@ -458,11 +459,18 @@ export function isLocalProvider() {
 
 async function callOpenAI(messages, apiKey, model, onDelta) {
   const local = isLocalProvider();
-  const res = await fetch(`${API_BASE}/chat/completions`, {
+  // ブラウザ + ローカルプロバイダ = CORSブロック → Viteプロキシ経由で転送
+  const useProxy = local && !window.__TAURI__;
+  const apiPath = API_BASE.replace(/\/+$/, '');
+  const url = useProxy
+    ? `/llm-proxy${new URL(API_BASE).pathname}/chat/completions`
+    : `${apiPath}/chat/completions`;
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      ...(useProxy ? { 'X-LLM-Target': API_BASE } : {}),
     },
     body: JSON.stringify({
       model,
@@ -708,15 +716,15 @@ export async function planArdySegments(text, apiKey, model, { waypointCount = 0,
 }
 
 /**
- * Electron の Codex CLI (ChatGPT/Codex サブスクリプション) でモーション spec を生成する。
- * 認証情報は preload の限定 IPC 内に留まり、レンダラーには渡されない。
+ * Codex CLI (ChatGPT/Codex サブスクリプション) でモーション spec を生成する。
+ * 認証情報はバックエンドの IPC 内に留まり、レンダラーには渡されない。
  */
 export async function generateMotionWithCodex(
   text,
   model,
   { refine = true, onProgress } = {}
 ) {
-  if (!window.codexBridge) {
+  if (!codexBridge) {
     throw new Error('Codex認証はデスクトップ版でのみ利用できます。');
   }
 
@@ -730,7 +738,7 @@ export async function generateMotionWithCodex(
       ? t('gen.codexRefine', { model })
       : t('gen.codex', { model })
   );
-  const spec = await window.codexBridge.generateMotion({
+  const spec = await codexBridge.generateMotion({
     model,
     systemPrompt: SYSTEM_PROMPT,
     prompt: userMsg,
