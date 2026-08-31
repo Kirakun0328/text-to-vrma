@@ -21,6 +21,8 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "src/**/*",
+      "tools/api-server.mjs",
       "tools/ardy-engine/**/*",
       "LICENSE",
       "THIRD_PARTY_NOTICES.md",

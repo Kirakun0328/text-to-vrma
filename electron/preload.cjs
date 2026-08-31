@@ -19,3 +19,10 @@ contextBridge.exposeInMainWorld('ardyBridge', {
   stop: () => ipcRenderer.invoke('ardy:stop'),
   setup: () => ipcRenderer.invoke('ardy:setup'),
 });
+
+contextBridge.exposeInMainWorld('localApiBridge', {
+  getStatus: () => ipcRenderer.invoke('local-api:get-status'),
+  start: (config) => ipcRenderer.invoke('local-api:start', config),
+  stop: () => ipcRenderer.invoke('local-api:stop'),
+  regenerateToken: () => ipcRenderer.invoke('local-api:regenerate-token'),
+});

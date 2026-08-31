@@ -1206,5 +1206,84 @@ textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateBtn.click();
 });
 
+// --- ローカルHTTP API (デスクトップ版のみ・オプトイン) ---
+const localApiBridge = window.localApiBridge;
+const localApiRow = $('localApiRow');
+const localApiEnable = $('localApiEnable');
+const localApiPort = $('localApiPort');
+const localApiState = $('localApiState');
+const localApiTokenRow = $('localApiTokenRow');
+const localApiToken = $('localApiToken');
+
+function renderLocalApiStatus(status) {
+  if (!status) return;
+  localApiEnable.checked = status.running;
+  localApiTokenRow.classList.toggle('hidden', !status.token);
+  if (status.token) localApiToken.value = status.token;
+  if (status.lastError) {
+    localApiState.textContent = `❌ ${status.lastError}`;
+    localApiState.className = 'auth-state err';
+  } else if (status.running) {
+    localApiState.textContent = t('localApi.running', { url: status.url });
+    localApiState.className = 'auth-state ok';
+  } else {
+    localApiState.textContent = t('localApi.stopped');
+    localApiState.className = 'auth-state';
+  }
+}
+
+// サーバーは環境変数ではなくアプリの設定 (localStorage) からキーを受け取る。
+// 利用者がアプリで設定済みのキーをそのままAPIでも使えるようにするため
+function localApiConfig() {
+  return {
+    port: Number(localApiPort.value) || 8787,
+    openaiApiKey: (localStorage.getItem('openai-api-key') || '').trim(),
+    claudeApiKey: (localStorage.getItem('claude-api-key') || '').trim(),
+    openaiBaseUrl: (localStorage.getItem('openai-base-url') || '').trim(),
+    openaiModel: (localStorage.getItem('openai-model') || '').trim(),
+    claudeModel: (localStorage.getItem('claude-model') || '').trim(),
+  };
+}
+
+async function initLocalApi() {
+  if (!localApiBridge) return; // ブラウザ版では出さない
+  localApiRow.classList.remove('hidden');
+  localApiPort.value = localStorage.getItem('local-api-port') || '8787';
+
+  const status = await localApiBridge.getStatus().catch(() => null);
+  renderLocalApiStatus(status);
+  // 前回有効にしていたら復帰させる
+  if (localStorage.getItem('local-api-enabled') === '1' && !status?.running) {
+    renderLocalApiStatus(await localApiBridge.start(localApiConfig()));
+  }
+
+  localApiEnable.addEventListener('change', async () => {
+    const enabled = localApiEnable.checked;
+    localStorage.setItem('local-api-enabled', enabled ? '1' : '0');
+    localApiState.textContent = t(enabled ? 'localApi.starting' : 'localApi.stopping');
+    renderLocalApiStatus(enabled
+      ? await localApiBridge.start(localApiConfig())
+      : await localApiBridge.stop());
+  });
+
+  localApiPort.addEventListener('change', async () => {
+    localStorage.setItem('local-api-port', String(Number(localApiPort.value) || 8787));
+    if (!localApiEnable.checked) return;
+    await localApiBridge.stop();
+    renderLocalApiStatus(await localApiBridge.start(localApiConfig()));
+  });
+
+  $('localApiCopyBtn').addEventListener('click', async () => {
+    await navigator.clipboard.writeText(localApiToken.value).catch(() => {});
+    setStatus(t('localApi.copied'), 'ok');
+  });
+
+  $('localApiRegenBtn').addEventListener('click', async () => {
+    renderLocalApiStatus(await localApiBridge.regenerateToken());
+    setStatus(t('localApi.regenerated'), 'ok');
+  });
+}
+
 initializeAuth();
+initLocalApi();
 init();

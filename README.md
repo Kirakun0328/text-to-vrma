@@ -310,6 +310,27 @@ Text-To-VRMA API listening on http://127.0.0.1:8787
 `engine=ardy` は**APIキーなしで使えます** (ARDYローカルエンジンの起動が必要)。
 `engine=openai` / `engine=claude` はキーが要りますが、ARDYのセットアップは不要です。
 
+### デスクトップ版から使う (v1.1.7〜)
+
+コマンドを使わず、アプリの「詳細設定 → ローカルHTTP API」から有効にできます。
+**既定はオフ**で、チェックを入れたときだけ 127.0.0.1 にポートを開きます。
+
+- アプリに設定済みの OpenAI / Claude のキーをそのまま使うので、二重の設定は不要です
+- **アクセストークンが必須**です。設定欄に表示されるので、呼び出す側の
+  `Authorization: Bearer <token>` に指定してください。インストールごとに固定なので
+  外部ツール側は一度書けば済みます。漏れた場合は「🔄 再生成」で無効化できます
+- ポートが使用中の場合はその旨を表示します (別のポートを指定してください)
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Authorization: Bearer <アプリに表示されたトークン>" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"前に歩いて手を振る","engine":"ardy","format":"vrma"}' \
+  -o walk.vrma
+```
+
+### セキュリティ
+
 **既定では 127.0.0.1 のみで待ち受ける**ため、同じPC上のアプリからのみ到達できます。
 外部へ公開する場合は `TEXT_TO_MOTION_API_TOKEN` の設定が必須で、未設定なら起動時に
 エラーになります (その場合は全リクエストに `Authorization: Bearer <token>` が必要)。
@@ -357,6 +378,25 @@ curl -X POST http://127.0.0.1:8787/v1/motions \
 `OPENAI_BASE_URL` / `OPENAI_MODEL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` /
 `ARDY_URL` (既定 `http://127.0.0.1:2337`) /
 `TEXT_TO_MOTION_API_TOKEN` / `TEXT_TO_MOTION_CORS_ORIGIN`。
+
+悪意あるWebページから勝手に叩かれないよう、以下を多層で防いでいます。
+
+| 対策 | 内容 |
+| --- | --- |
+| バインド先 | 127.0.0.1 のみ。外部公開は `TEXT_TO_MOTION_API_TOKEN` 必須 |
+| Host検証 | ループバック名以外を403 (DNSリバインディング対策) |
+| Origin検証 | 付いていれば検証。外部オリジンを403 |
+| Sec-Fetch-Site | `cross-site` を403 |
+| Content-Type | POSTは `application/json` のみ (それ以外は415) |
+| メソッド | GET / POST / OPTIONS 以外は405 |
+| CORS | 既定でヘッダーを返さない (ワイルドカードは使わない) |
+| サイズ上限 | リクエスト本文 1 MiB |
+| トークン | デスクトップ版では必須。CLIでも `TEXT_TO_MOTION_API_TOKEN` で有効化 |
+
+APIキーの値がレスポンスに含まれないことはテストで固定しています。
+ただし**APIに到達できる相手はキーを見なくても「使える」**点には注意してください
+(生成が走り、利用料が消費されます)。デスクトップ版でトークンを必須にしているのは
+このためです。
 
 > **ブラウザ上の Web ページから呼ぶ場合のみ** `TEXT_TO_MOTION_CORS_ORIGIN` の設定が必要です
 > (既定ではCORSヘッダーを返さないため、ブラウザ側がブロックします)。

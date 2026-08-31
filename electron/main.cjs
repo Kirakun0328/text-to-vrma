@@ -5,6 +5,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { CodexClient, friendlyError } = require('./codex-client.cjs');
 const { ArdyClient } = require('./ardy-client.cjs');
+const { LocalApiServer } = require('./api-server-client.cjs');
 
 // file:// では fetch が使えないため、標準スキーム扱いの app:// で配信する
 protocol.registerSchemesAsPrivileged([
@@ -17,6 +18,7 @@ protocol.registerSchemesAsPrivileged([
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 let codexClient;
 let ardyClient;
+let localApiServer;
 
 function broadcastCodexStatus(status) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -73,6 +75,25 @@ function registerArdyIpc() {
   ipcMain.handle('ardy:setup', () => ardyClient.setup());
 }
 
+// ローカルHTTP API。既定では起動せず、設定でONにしたときだけポートを開く
+function registerLocalApiIpc() {
+  localApiServer = new LocalApiServer({ userDataDir: app.getPath('userData') });
+  ipcMain.handle('local-api:get-status', () => localApiServer.getStatus());
+  ipcMain.handle('local-api:start', (_event, config) => localApiServer.start(config || {}));
+  ipcMain.handle('local-api:stop', () => localApiServer.stop());
+  ipcMain.handle('local-api:regenerate-token', async () => {
+    // トークンは起動時にサーバーへ渡すため、稼働中なら入れ直す
+    const wasRunning = localApiServer.getStatus().running;
+    const config = localApiServer.lastConfig;
+    localApiServer.regenerateToken();
+    if (wasRunning) {
+      await localApiServer.stop();
+      await localApiServer.start(config || {});
+    }
+    return localApiServer.getStatus();
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -110,6 +131,7 @@ function createWindow() {
 app.whenReady().then(() => {
   registerCodexIpc();
   registerArdyIpc();
+  registerLocalApiIpc();
   protocol.handle('app', (request) => {
     const { pathname } = new URL(request.url);
     const rel = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
@@ -135,6 +157,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     codexClient?.close();
     ardyClient?.stop();
+    localApiServer?.stop();
     app.quit();
   }
 });
@@ -144,4 +167,5 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   codexClient?.close();
   ardyClient?.stop();
+  localApiServer?.stop();
 });
