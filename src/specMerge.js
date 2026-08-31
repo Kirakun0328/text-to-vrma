@@ -100,3 +100,32 @@ export function appendNeutralEnding(spec) {
   spec.duration = Math.round((T + SETTLE) * 100) / 100;
 }
 
+// specを目標秒数へ時間リスケールする (全キーフレームの時刻を比例変換)。
+// LLMキーフレーム生成で「長さ(秒)」指定を確実に反映するために使う
+export function rescaleSpec(spec, target) {
+  const cur = Number(spec?.duration) || 0;
+  if (!cur || !target || Math.abs(cur - target) < 0.02) {
+    if (spec) spec.duration = target || cur;
+    return spec;
+  }
+  const f = target / cur;
+  for (const keys of Object.values(spec.tracks || {})) for (const k of keys) k.t *= f;
+  for (const k of spec.hips || []) k.t *= f;
+  for (const keys of Object.values(spec.expressions || {})) for (const k of keys) k.t *= f;
+  spec.duration = target;
+  return spec;
+}
+
+// その場の動き (移動が少なく、終了時に開始位置付近へ戻る) ならループ向きと判定する
+export function isLoopFriendly(spec) {
+  const hips = spec.hips;
+  if (!hips?.length) return true;
+  const first = hips[0].p;
+  const last = hips.at(-1).p;
+  const endOffset = Math.hypot(last[0] - first[0], last[2] - first[2]);
+  const maxOffset = Math.max(
+    ...hips.map((k) => Math.hypot(k.p[0] - first[0], k.p[2] - first[2]))
+  );
+  return endOffset < 0.35 && maxOffset < 1.5;
+}
+

@@ -5,7 +5,7 @@ import { Viewer } from './viewer.js';
 import { buildVRMA } from './vrmaBuilder.js';
 import { idleSpec } from './idleMotion.js';
 import { autoExpressions } from './autoExpressions.js';
-import { appendNeutralEnding } from './specMerge.js';
+import { appendNeutralEnding, rescaleSpec, isLoopFriendly } from './specMerge.js';
 import { exportGIF, exportWebM, downloadBlob } from './recorder.js';
 import {
   generateMotionWithOpenAI,
@@ -71,35 +71,6 @@ langSelect.addEventListener('change', () => {
   updateWaypointUI();
 });
 applyStaticI18n();
-
-// specを目標秒数へ時間リスケールする (全キーフレームの時刻を比例変換)。
-// LLMキーフレーム生成で「長さ(秒)」指定を確実に反映するために使う
-function rescaleSpec(spec, target) {
-  const cur = Number(spec?.duration) || 0;
-  if (!cur || !target || Math.abs(cur - target) < 0.02) {
-    if (spec) spec.duration = target || cur;
-    return spec;
-  }
-  const f = target / cur;
-  for (const keys of Object.values(spec.tracks || {})) for (const k of keys) k.t *= f;
-  for (const k of spec.hips || []) k.t *= f;
-  for (const keys of Object.values(spec.expressions || {})) for (const k of keys) k.t *= f;
-  spec.duration = target;
-  return spec;
-}
-
-// その場の動き (移動が少なく、終了時に開始位置付近へ戻る) ならループ向きと判定する
-function isLoopFriendly(spec) {
-  const hips = spec.hips;
-  if (!hips?.length) return true;
-  const first = hips[0].p;
-  const last = hips.at(-1).p;
-  const endOffset = Math.hypot(last[0] - first[0], last[2] - first[2]);
-  const maxOffset = Math.max(
-    ...hips.map((k) => Math.hypot(k.p[0] - first[0], k.p[2] - first[2]))
-  );
-  return endOffset < 0.35 && maxOffset < 1.5;
-}
 
 // ARDYモードの経由地 (床クリックで配置、生成リクエストに同送)
 // 個数は無制限。ただし経路の所要時間 (歩速1m/s換算+2秒) が安全上限に収まる範囲まで

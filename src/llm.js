@@ -508,12 +508,16 @@ async function callOpenAI(messages, apiKey, model, onDelta) {
 
 // 進捗%の分母に使う「1回の応答のだいたいの文字数」を過去実績のEMAで学習する
 const RESP_CHARS_KEY = 'llm-resp-chars-ema';
+let nodeExpectedResponseChars = 6000;
 function expectedResponseChars() {
+  if (typeof localStorage === 'undefined') return nodeExpectedResponseChars;
   return Number(localStorage.getItem(RESP_CHARS_KEY)) || 6000;
 }
 function updateExpectedResponseChars(actual) {
   const prev = expectedResponseChars();
-  localStorage.setItem(RESP_CHARS_KEY, String(Math.round(prev * 0.6 + actual * 0.4)));
+  const next = Math.round(prev * 0.6 + actual * 0.4);
+  if (typeof localStorage === 'undefined') nodeExpectedResponseChars = next;
+  else localStorage.setItem(RESP_CHARS_KEY, String(next));
 }
 
 /**

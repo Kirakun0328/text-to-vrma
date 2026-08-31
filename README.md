@@ -252,6 +252,8 @@ spec 以降は両モード共通:
 | `electron/codex-client.cjs` | Codex app-server接続 / ChatGPT認証 / モデル取得 / 一時スレッドでの生成 |
 | `electron/ardy-client.cjs` | ARDYエンジンサーバーの起動・監視 (デスクトップ版) |
 | `electron/preload.cjs` | 認証情報を公開しない限定IPCブリッジ |
+| `src/apiServer.js` | ローカルHTTP API本体 (OpenAI / ARDY 両エンジンに対応) |
+| `tools/api-server.mjs` | APIサーバーの起動エントリ (`npm run api`) |
 | `tools/ardy-engine/server.py` | ARDY常駐サーバー: 生成・日本語翻訳・経由地制約・進捗API |
 | `tools/ardy-engine/retarget.py` | ARDY Coreスケルトン → VRM Humanoid リターゲット |
 | `tools/ardy-engine/install.ps1` | エンジンのワンコマンドセットアップ (Windows) |
@@ -282,6 +284,60 @@ LLM が生成する中間表現です:
   プレビューでは常に再生され、`.vrma` 保存時は含めるかどうかを選択できます
   (再生側アプリが VRMA の表情トラックに対応している必要があります)
 - 座標規約: モデルは +Z 正面 / +X が左手側 (VRM 1.0 準拠)
+
+## ローカルHTTP API (開発者向け)
+
+他のアプリやスクリプトから Text-To-VRMA を呼び出すためのローカルAPIサーバーです。
+Unity / Blender / 自作ツール / シェルスクリプトなどから、テキストを投げて
+モーション spec や `.vrma` を受け取れます。
+
+```bash
+npm run api          # http://127.0.0.1:8787 で起動
+```
+
+**既定では 127.0.0.1 のみで待ち受ける**ため、同じPC上のアプリからのみ到達できます。
+外部へ公開する場合は `TEXT_TO_MOTION_API_TOKEN` の設定が必須で、未設定なら起動時に
+エラーになります (その場合は全リクエストに `Authorization: Bearer <token>` が必要)。
+
+| エンドポイント | 説明 |
+| --- | --- |
+| `GET /health` | 稼働状態・利用可能エンジン・キー設定の有無 |
+| `GET /openapi.json` | OpenAPI 3.1 定義 |
+| `POST /v1/motions` | テキストからモーションを生成 |
+| `POST /v1/vrma` | 既存の spec を `.vrma` に変換 (キー不要) |
+
+`POST /v1/motions` のリクエスト:
+
+| フィールド | 既定 | 説明 |
+| --- | --- | --- |
+| `prompt` | (必須) | 動きの指示。1〜4000文字 |
+| `engine` | `openai` | `openai` = LLMキーフレーム / `ardy` = ARDYローカルエンジン |
+| `format` | `json` | `json` は spec、`vrma` は `.vrma` バイナリを返す |
+| `model` | 環境変数 | `openai` では生成モデル、`ardy` では動作分割に使うGPTモデル |
+| `refine` | `true` | `openai` のみ有効な2パス自己修正 |
+| `duration` | — | `ardy` のみ: 生成する長さ (秒) |
+| `waypoints` | — | `ardy` のみ: 移動経路 `[{ "x": 1, "z": 2 }]` |
+
+```bash
+# ARDYローカルエンジンで生成 (APIキー不要。エンジンの起動が必要)
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"前に歩いて手を振る","engine":"ardy","format":"vrma"}' \
+  -o walk.vrma
+
+# OpenAI APIキーで生成 (サーバー起動時に OPENAI_API_KEY が必要)
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"お辞儀する"}'
+```
+
+環境変数: `PORT` (既定 8787) / `HOST` (既定 127.0.0.1) / `OPENAI_API_KEY` /
+`OPENAI_BASE_URL` / `OPENAI_MODEL` / `ARDY_URL` (既定 `http://127.0.0.1:2337`) /
+`TEXT_TO_MOTION_API_TOKEN` / `TEXT_TO_MOTION_CORS_ORIGIN`。
+
+> **ブラウザ上の Web ページから呼ぶ場合のみ** `TEXT_TO_MOTION_CORS_ORIGIN` の設定が必要です
+> (既定ではCORSヘッダーを返さないため、ブラウザ側がブロックします)。
+> curl・Python・Unity・Node などブラウザ外のクライアントには制限はありません。
 
 ## 注意事項
 

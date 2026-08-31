@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "node --test test/*.test.cjs",
+    "api": "node tools/api-server.mjs",
     "preview": "vite preview",
     "app:dev": "electron .",
     "app:build": "vite build && electron-builder --win portable"
