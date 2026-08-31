@@ -1,5 +1,23 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const http = require('node:http');
+
+// fetch は Host を上書きしてしまうので、Hostヘッダーの検証には生のHTTPを使う
+function rawRequest(baseUrl, path, headers = {}) {
+  const url = new URL(baseUrl);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { hostname: url.hostname, port: url.port, path, method: 'GET', headers },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 async function startServer(options = {}) {
   const { createApiServer } = await import('../src/apiServer.js');
@@ -103,6 +121,43 @@ test('不正な入力を400で返す', async (t) => {
   });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error.code, 'invalid_prompt');
+});
+
+test('単純リクエスト (text/plain) のPOSTを415で弾く', async (t) => {
+  // ブラウザからのCSRFはプリフライトが飛ばない単純リクエストで成立するため、
+  // application/json を必須にして塞ぐ
+  const api = await startServer({ apiKey: 'test-key' });
+  t.after(api.close);
+  const response = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ prompt: '手を振る' }),
+  });
+  assert.equal(response.status, 415);
+  assert.equal((await response.json()).error.code, 'unsupported_media_type');
+});
+
+test('ループバック以外のHostヘッダーを403で弾く', async (t) => {
+  // DNSリバインディング対策。攻撃者のドメインを127.0.0.1へ向けても
+  // ブラウザは Host: evil.example を送るのでここで止まる
+  const api = await startServer({ apiKey: 'test-key' });
+  t.after(api.close);
+  const denied = await rawRequest(api.url, '/health', { Host: 'evil.example' });
+  assert.equal(denied.status, 403);
+  assert.equal(JSON.parse(denied.body).error.code, 'invalid_host');
+
+  const allowed = await rawRequest(api.url, '/health', { Host: '127.0.0.1' });
+  assert.equal(allowed.status, 200);
+});
+
+test('トークン運用ではHostチェックをスキップする', async (t) => {
+  // 外部公開時は認証が役目を負うので、任意のHostで到達できる必要がある
+  const api = await startServer({ apiKey: 'test-key', apiToken: 'secret' });
+  t.after(api.close);
+  const response = await rawRequest(api.url, '/health', {
+    Host: 'text-to-vrma.example', Authorization: 'Bearer secret',
+  });
+  assert.equal(response.status, 200);
 });
 
 test('ClaudeエンジンでANTHROPIC_API_KEYを使って生成する', async (t) => {

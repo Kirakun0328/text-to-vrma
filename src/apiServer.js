@@ -15,6 +15,8 @@ import {
 const JSON_LIMIT = 1024 * 1024;
 const DEFAULT_ARDY_URL = 'http://127.0.0.1:2337';
 const ENGINES = ['openai', 'claude', 'ardy'];
+// DNSリバインディング対策で許可するHostヘッダー (ポート番号は除いて比較する)
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1', '[::1]'];
 
 /**
  * ARDYローカルエンジンでモーションを生成する。
@@ -216,6 +218,28 @@ export function createApiServer({
       res.writeHead(204, corsHeaders);
       res.end();
       return;
+    }
+
+    // DNSリバインディング対策: 攻撃者のドメインを一時的に127.0.0.1へ向けると
+    // ブラウザは同一オリジンと誤認しCORSを迂回してレスポンスまで読めてしまう。
+    // Hostがループバック名でなければ拒否する。トークン運用 (外部公開) では
+    // 認証がその役目を負うのでスキップする
+    if (!apiToken) {
+      const hostname = String(req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
+      if (!LOOPBACK_HOSTS.includes(hostname)) {
+        apiError(res, 403, 'ループバック以外のHostヘッダーは受け付けません', 'invalid_host', corsHeaders);
+        return;
+      }
+    }
+
+    // ブラウザのCSRF対策: application/json はプリフライトが必須になるため、
+    // 悪意あるページからの「単純リクエスト」(text/plain等) を弾ける
+    if (req.method === 'POST') {
+      const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (contentType !== 'application/json') {
+        apiError(res, 415, 'Content-Type: application/json を指定してください', 'unsupported_media_type', corsHeaders);
+        return;
+      }
     }
 
     if (apiToken && req.headers.authorization !== `Bearer ${apiToken}`) {
