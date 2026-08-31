@@ -21,9 +21,10 @@ video/*.mp4
 # Claude Code ローカル設定
 .claude/
 
-# ローカルAPIサーバーのログ
+# ローカルAPIサーバーのログと設定 (APIキーを含むためコミットしない)
 api-server.log
 api-server.error.log
+.env
 
 # Python
 __pycache__/

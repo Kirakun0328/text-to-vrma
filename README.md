@@ -292,8 +292,22 @@ Unity / Blender / 自作ツール / シェルスクリプトなどから、テ�
 モーション spec や `.vrma` を受け取れます。
 
 ```bash
-npm run api          # http://127.0.0.1:8787 で起動
+cp .env.example .env   # 初回のみ。OPENAI_API_KEY を書いておく (ARDYだけなら不要)
+npm run api            # http://127.0.0.1:8787 で起動
 ```
+
+`.env` はリポジトリ直下に置けば起動時に自動で読まれます (Gitには入りません)。
+起動すると、どのエンジンが今すぐ使えるかが表示されます:
+
+```text
+.env を読み込みました
+Text-To-VRMA API listening on http://127.0.0.1:8787
+  engine=openai : 未設定 (.env に OPENAI_API_KEY を設定してください)
+  engine=ardy   : 利用可能 (ARDY-Core-RP-20FPS-Horizon40 / GPU)
+```
+
+`engine=ardy` は**APIキーなしで使えます** (ARDYローカルエンジンの起動が必要)。
+`engine=openai` はキーが要りますが、ARDYのセットアップは不要です。
 
 **既定では 127.0.0.1 のみで待ち受ける**ため、同じPC上のアプリからのみ到達できます。
 外部へ公開する場合は `TEXT_TO_MOTION_API_TOKEN` の設定が必須で、未設定なら起動時に
