@@ -28,6 +28,11 @@
       "THIRD_PARTY_NOTICES.md",
       "!dist/models/*.vrm"
     ],
+    "extraResources": [{
+      "from": "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc",
+      "to": "codex",
+      "filter": ["**/*"]
+    }],
     "directories": {
       "output": "release"
     },

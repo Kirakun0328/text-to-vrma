@@ -107,8 +107,9 @@ npm run app:dev
   **必ず `npm run build` を実行してから** `npm run app:dev` で起動してください
   (ビルド済みのまま再起動するだけなら `npm run app:dev` のみでOK)
 - Codexサブスクリプション認証はデスクトップ版と `npm run dev` / `npm run preview` のローカルWeb版で利用できます。
-  使う場合は事前に Codex CLI のインストール・認証・PATH設定を済ませてください
-  (Codex CLI はアプリに同梱されません)
+  **exe版 (Releases のzip) は Codex CLI を同梱**しているため、別途の導入は不要です
+  (アプリ内の「ChatGPTでログイン」だけで使えます)。
+  ソースから動かす場合は下記のとおり `npm install` が導入します
   ローカルWeb版は同一オリジンのNodeサーバーから `codex app-server` に接続します。
   静的ファイルのみの配信では利用できません。モデル一覧はログインしたアカウントから取得し、
   GPT-6 Astraが一覧にない場合はサブスク側でまだ選択できません。

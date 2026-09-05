@@ -4,6 +4,11 @@ const readline = require('node:readline');
 const path = require('node:path');
 const { existsSync } = require('node:fs');
 const LOCAL_CODEX = path.join(__dirname, '..', 'node_modules', '.bin', process.platform === 'win32' ? 'codex.cmd' : 'codex');
+function resolveCodexCommand(resourcesPath = process.resourcesPath, exists = existsSync) {
+  const bundled = resourcesPath && path.join(resourcesPath, 'codex', 'bin', 'codex.exe');
+  if (bundled && exists(bundled)) return bundled;
+  return exists(LOCAL_CODEX) ? LOCAL_CODEX : 'codex';
+}
 
 const MIN_CODEX_VERSION = [0, 144, 1];
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -163,7 +168,7 @@ function friendlyError(error) {
 }
 
 class CodexClient extends EventEmitter {
-  constructor({ command = existsSync(LOCAL_CODEX) ? LOCAL_CODEX : 'codex', cwd, spawnProcess = spawn, exec = execFile } = {}) {
+  constructor({ command = resolveCodexCommand(), cwd, spawnProcess = spawn, exec = execFile } = {}) {
     super();
     this.command = command;
     this.cwd = cwd;
@@ -362,7 +367,7 @@ class CodexClient extends EventEmitter {
       const child = this.spawnProcess(this.command, ['app-server', '--stdio'], {
         cwd: this.cwd,
         env: process.env,
-        shell: process.platform === 'win32',
+        shell: process.platform === 'win32' && !/\.exe$/i.test(this.command),
         windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -394,7 +399,7 @@ class CodexClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       this.exec(this.command, ['--version'], {
         env: process.env,
-        shell: process.platform === 'win32',
+        shell: process.platform === 'win32' && !/\.exe$/i.test(this.command),
         windowsHide: true,
         timeout: 10_000,
       }, (error, stdout) => {
@@ -500,6 +505,7 @@ class CodexClient extends EventEmitter {
 }
 
 module.exports = {
+  resolveCodexCommand,
   CodexClient,
   MIN_CODEX_VERSION,
   MOTION_OUTPUT_SCHEMA,

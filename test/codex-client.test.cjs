@@ -9,6 +9,15 @@ const {
   friendlyError,
 } = require('../electron/codex-client.cjs');
 
+test('packaged app prefers its bundled CLI even in a path containing spaces', () => {
+  const {resolveCodexCommand} = require('../electron/codex-client.cjs');
+  const path = require('node:path');
+  const resources = path.join('example app', 'resources');
+  const expected = path.join(resources, 'codex', 'bin', 'codex.exe');
+  assert.equal(resolveCodexCommand(resources, value=>value===expected), expected);
+  assert.equal(resolveCodexCommand(resources, ()=>false), 'codex');
+});
+
 test('Codex usage reads account rate limits without starting a generation', async () => {
   const { client, getTurnCount } = createFakeCodex();
   try {
