@@ -37,6 +37,7 @@ async function reportEngines() {
   }
   console.log(`  engine=openai : ${openai}`);
   console.log(`  engine=claude : ${claude}`);
+  console.log('  engine=codex  : ChatGPTログインの利用枠 (生成時に認証確認、APIキー不要)');
   console.log(`  engine=ardy   : ${ardy}`);
 }
 

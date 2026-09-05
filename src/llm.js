@@ -1,4 +1,6 @@
 import { t } from './i18n.js';
+import { EMOTION_ACTING_GUIDE } from './emotionActing.js';
+import { normalizeMotionChecks } from './motionCompliance.js';
 // llm.js — OpenAI API でテキストからモーション spec を生成する
 import { BONE_NAMES, EXPRESSION_PRESETS } from './vrmaBuilder.js';
 
@@ -7,6 +9,7 @@ export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 export const SYSTEM_PROMPT = `あなたはVRMヒューマノイドキャラクターのモーションデザイナーです。
 ユーザーのテキストから、キーフレームアニメーションのJSONを生成してください。
 出力はJSONオブジェクトのみ。説明文やコードブロックは不要です。
+${EMOTION_ACTING_GUIDE}
 
 # 座標規約 (VRM 1.0 / T-pose レスト)
 - モデルは +Z を向いて立つ。+X はモデルの左手側、+Y が上。
@@ -37,20 +40,20 @@ ${BONE_NAMES.join(', ')}
 hips は腰位置のオフセット(メートル)。不要なら空配列 [] にする。
 
 # 表情 (expressions) の使い方
-- 使える表情: happy, angry, sad, relaxed, surprised, blink (まばたき), aa (口を開く)
+- 使える感情表情: happy, angry, sad, relaxed, surprised, neutral。補助: blink (まばたき), aa (口を開く)
 - w はウェイト 0〜1。感情表情は 0.4〜1.0、変化には 0.2〜0.4 秒かける。
 - モーションの感情に合った表情を必ず入れる (喜ぶ→happy、落ち込む→sad、驚く→surprised 等)。
 - まばたき (blink) を 2〜4 秒おきに入れると生きて見える: 0→1→0 を約 0.15 秒で。
 - 表情に対応していないモデルでは自動的に無視されるので、遠慮なく使ってよい。
 
 # ルール
-- 常に腕を下ろした自然な姿勢から始める (leftUpperArm Z=-70, rightUpperArm Z=+70 を t=0 に置く)。
-- 使うボーンには必ず t=0 と t=duration のキーを置き、非ループなら最初と最後をニュートラルに戻す。
+- 開始姿勢の指定がなければ腕を下ろした自然な姿勢から始める (leftUpperArm Z=-70, rightUpperArm Z=+70 を t=0 に置く)。指定があればそれを優先する。
+- 使うボーンには必ず t=0 と t=duration のキーを置く。終了は指示された姿勢・感情を保ち、非ループでも一律にニュートラルへ戻さない。
 - キーは滑らかに補間される (線形+球面補間)。動きに緩急をつけるためキーを十分に打つ。
 - duration は 1.5〜15 秒。内容に合わせて決める:
   - 単発の動作 (うなずく・手を振る等) は 2〜4 秒
   - 複数動作の連続・ダンス・演技は 8〜15 秒。動きをフェーズに分けて構成し、
-    フェーズの区切りに短い静止や姿勢の切り替えを入れる
+    指示に合う緩急をつけ、連続する動作の区切りには不要な静止を入れない
 - キー数は動きの長さに比例させる (目安: 1秒あたり 2〜4 キー、1ボーン最大 40 キー)。
   長いモーションでも間延びしないよう、常にどこかの部位が動いているようにする。
 - 回転角は関節の可動域内に収める。特に:
@@ -165,7 +168,7 @@ export const REFINE_INSTRUCTION = `以下は上記の指示で生成されたモ
    (上腕60度以上 + 肘60度以上の組み合わせは禁止)。左右の取り違えがないか。
 3. 自然さ: 立ち姿勢で肘が伸びきっていないか。逆に寝転び・倒れ姿勢で肘や膝が
    宙に突き出ていないか (床に沿っているか)。往復運動の端で減速しているか。予備動作と余韻があるか。
-4. 完全性: 使うボーンに t=0 と t=duration のキーがあるか。非ループは最初と最後がニュートラルか。
+4. 完全性: 使うボーンに t=0 と t=duration のキーがあるか。開始・終了姿勢と感情が原文の指定に合うか。一律にニュートラルへ変えない。
 5. 意図: そもそもユーザーの指示した動きになっているか。
 6. 表現: 定型的・機械的すぎないか。実際の人間がやる動きとして違和感がないか。`;
 
@@ -197,7 +200,7 @@ function updateExpectedClaudeChars(model, actual) {
   else localStorage.setItem(`${CLAUDE_RESP_CHARS_KEY}:${model}`, String(next));
 }
 
-async function callClaude(messages, apiKey, model, onDelta) {
+export async function callClaude(messages, apiKey, model, onDelta) {
   const systemMsg = messages.find((m) => m.role === 'system');
   const claudeMessages = messages
     .filter((m) => m.role !== 'system')
@@ -451,7 +454,7 @@ export function setApiBase(url) {
   API_BASE = u || DEFAULT_API_BASE;
 }
 
-async function callOpenAI(messages, apiKey, model, onDelta) {
+export async function callOpenAI(messages, apiKey, model, onDelta, { effort } = {}) {
   const res = await fetch(`${API_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -461,6 +464,7 @@ async function callOpenAI(messages, apiKey, model, onDelta) {
     body: JSON.stringify({
       model,
       response_format: { type: 'json_object' },
+      ...((/^gpt-6-astra(?:-|$)|^gpt-5\.6-/.test(model) && effort) ? { reasoning_effort: effort } : {}),
       messages,
       ...(onDelta ? { stream: true } : {}),
     }),
@@ -537,13 +541,16 @@ export async function generateMotionWithOpenAI(
   text,
   apiKey,
   model = DEFAULT_OPENAI_MODEL,
-  { refine = true, onProgress, onFraction } = {}
+  { refine, onProgress, onFraction, speed } = {}
 ) {
+  refine ??= speed !== 'fast';
+  const effort = { fast: 'low', balanced: 'medium', quality: 'high' }[speed];
   // 演出の味付けをランダムに混ぜて、同じ指示でも毎回違う振り付けを引き出す
   const flavor = randomFlavor();
   const userMsg =
     `次の動きのモーションを作成: ${text}\n` +
-    `(今回の演出の味付け: ${flavor}。ただしユーザーの指示と矛盾する場合は指示を優先)`;
+    `(今回の演出の味付け: ${flavor}。ただしユーザーの指示と矛盾する場合は指示を優先)` +
+    (speed === 'fast' ? '\n速度優先。主役の関節に絞り、1ボーン最大8キー。必要な予備動作・本動作・余韻を保ち、コンパクトなJSONで返す。' : '');
 
   // 進捗%: 受信文字数 ÷ 過去実績の期待文字数。2パス構成なら 1パス目=0〜60%
   const expected = expectedResponseChars();
@@ -557,7 +564,8 @@ export async function generateMotionWithOpenAI(
     ],
     apiKey,
     model,
-    onFraction && ((chars) => onFraction(Math.min(0.99, (chars / expected) * pass1End), 1))
+    onFraction && ((chars) => onFraction(Math.min(0.99, (chars / expected) * pass1End), 1)),
+    { effort }
   );
   updateExpectedResponseChars(draft.length);
   let spec = JSON.parse(draft);
@@ -576,7 +584,8 @@ export async function generateMotionWithOpenAI(
         ],
         apiKey,
         model,
-        onFraction && ((chars) => onFraction(Math.min(0.99, pass1End + (chars / expected) * (1 - pass1End)), 2))
+        onFraction && ((chars) => onFraction(Math.min(0.99, pass1End + (chars / expected) * (1 - pass1End)), 2)),
+        { effort }
       );
       const refinedSpec = JSON.parse(refined);
       validateSpec(refinedSpec);
@@ -596,27 +605,59 @@ export async function generateMotionWithOpenAI(
 // (モーション生成そのものは常にARDY。キーフレーム生成は混ぜない)
 const ARDY_PLAN_PROMPT = `あなたはモーションディレクターです。ユーザーの指示を、
 text-to-motionモデル (ARDY) に渡す英語の動作セグメント列に変換してください。
+${EMOTION_ACTING_GUIDE}
 
 ルール:
-- 各セグメントは "A person ..." で始まる、単一の具体的な動作の簡潔な英文にする
-- ★ユーザーが複数の動作を並べた場合、1つも省略・統合せず、動作の数だけ
-  別々のセグメントを作る。「歩いて走ってジャンプして転んで」なら
-  walk / run / jump / fall の4つを必ず個別セグメントにする
-- 「〜して」「〜してから」「その後」などの連続動作はセグメントを分ける (最大12個)
+- 各セグメントは "A person ..." で始まる、具体的で簡潔な英文にする。
+- 指定された左右・回数・順序・到達位置・禁止事項を必ず守り、動作を省略しない。
+- 最優先は指示への忠実さ。自然さや滑らかさを理由に、振る回数・動作の大きさ・速さ・停止位置を変更しない。
+  「怒ってジタバタする」「暴れる」「大はしゃぎ」等は感情ラベルではなく全身の主動作。
+  looks angry や clenches fists だけに置き換えず、手足が実際に大きく動く具体的な動詞で伝える。
+  激しい動作に gentle / subtle / calm / small / relaxed を一律に補わない。自然さは動作の強さを下げる意味ではない。
+  例「怒ってジタバタする」: "A person throws an angry tantrum, repeatedly stamping their feet and flailing both arms with forceful, irregular movements."
+  姿勢指定がある場合は必ず合わせる。床に寝てジタバタなら lying on the floor, kicking their legs and flailing their arms、
+  椅子に座ってなら seated とし、立って足踏みへ置き換えない。足を動かさない指定なら腕・上体だけで表現する。
+  単に「怒る」だけならジタバタを勝手に追加しない。「ジタバタしない」等の否定にも従う。
+  「左腕は下ろしたまま」等の条件は関係する全セグメントに明記する。
+  顔の横・胸の前等の目標は単なる「手を振る」に要約せず、対象の手と到達位置を英文に残す。
+  回数指定は exactly N complete cycles とし、開始姿勢→往復→終了姿勢までを1回として記述する。
+  返答前に元の指示を動作・左右・回数・順序・到達位置・固定する部位・終了姿勢に分け、
+  すべてがセグメント列に含まれ、矛盾や余分な主動作がないことを照合する。
+- セグメントは意味のある演技のまとまりで分ける。細かな動詞ごとに分断しない。
+  手を上げる→3回振る→下ろす、は一続きの挨拶として1セグメントにまとめる。
+  終了動作まで含む時間を確保し、途中で切らずに生成する。
+  歩く→走る→ジャンプ→転ぶ、のように運動の種類が変わる場合は分ける (最大12個)。
+- 停止の指示がなければ各仕草の間で直立・静止へ戻さない。主動作に合う予備動作、
+  小さな重心移動、肘や手首の遅れ、動作後の余韻を指示と矛盾しない範囲だけ短い英文で補う。
+  主動作に必要な自然な全身連動に限り、指定にない歩行・回転・ジャンプは追加しない。
+  例: "A person smoothly raises their right hand beside their face, gives exactly three small waves with relaxed elbow and wrist follow-through, then gently lowers the hand."
+  終了まで前の動作の姿勢・左右を保ち、唐突な姿勢リセットを指示しない。
+  終了姿勢はユーザーの指示に従い、座る・しゃがむ・腕を上げて止める等を勝手に直立へ変えない。
 - duration の合計は120秒以内
 - 持続動作 (歩く・走る・踊る等) を5秒以上続けたい場合は、同じ英文を
   duration 4〜5秒のセグメントとして必要な回数繰り返す
   (モデルは1セグメント内で動作を完了すると止まる癖があるため)
+  ただし回数指定のある動作を尺埋めのために繰り返さない。余った時間は指定された終了姿勢で保持する。
 - ジャンプ・キック等の単発アクションは duration 3〜4秒とし、動作が明確に
   伝わる具体的な英文にする (例: "A person jumps up high with both feet
   leaving the ground." — 曖昧な "jumps" だけより確実に発火する)
 - 小道具が必要な動作は体の動きだけで表現できる形に言い換える
   (例: ボールを蹴る → "A person kicks with the right leg.")
-- expression: モーション全体の感情 happy / sad / angry / surprised / relaxed のどれか、
+- expression: モーション全体の感情 happy / sad / angry / surprised / relaxed / neutral のどれか、
   読み取れなければ null
+- 感情は expression だけで済ませず、該当する英文にも happy / sad / angry / surprised / relaxed / embarrassed 等を残す。
+  喜びは胸が開く・軽い弾み、怒りは肩や腕の緊張と鋭い緩急、悲しみは肩が落ちる・顔が下がる・遅い動き、
+  楽しさは軽やかな重心移動など、指示された動作の範囲で全身の演技に反映する。
+  感情が途中で変わる場合は順序と変化を英文に明記する。感情だけを理由に区間を分割しない。
+  ダンスや歩行などの動作名だけから勝手に喜びを付けない。表情が不明なら null。
 
+測定計画 checks も返す。原文が明示する動作だけを対象にする。配列が空でもよい。
+kind は travel (実際に歩く・走る等で移動)、jump (両足が離地)、crouch (腰を落とす)、raiseHand (手を顔付近以上へ上げる)。
+segmentIndex はその動作を行う segments の0始まりの番号、side は left/right/both（手以外はboth）。
+「足を動かさない」「ジャンプしない」等を肯定のチェックにしない。感情語や重心移動だけをtravelにしない。
+これは粗い位置測定。回数やパンチの正確さ等、測れない条件を上記へ無理に変換せず checks に含めない。
 JSON形式で返答:
-{"segments": [
+{"checks":[{"kind":"travel","segmentIndex":0,"side":"both"},{"kind":"jump","segmentIndex":1,"side":"both"}],"segments": [
   {"text": "A person runs forward fast.", "duration": 4},
   {"text": "A person jumps up high with both feet leaving the ground.", "duration": 3}
 ], "expression": null}`;
@@ -624,23 +665,30 @@ JSON形式で返答:
 // LLM監視: 分割結果に抜け・統合がないか検証して補正する
 const ARDY_VERIFY_PROMPT = `あなたはモーション計画の検証者です。ユーザーの元の指示と、
 生成済みのセグメント列を突き合わせ、次を厳密にチェックして修正版を返してください。
+${EMOTION_ACTING_GUIDE}
 
 チェック項目:
 - ユーザーが指示した動作が1つも欠けていないか (欠けていれば "A person ..." の英文で追加)
 - 動作の順序が指示どおりか (違えば並べ替える)
-- 複数の動作が1セグメントに統合されていないか (されていれば分割する)
-- 各セグメントが単一の具体的な動作になっているか
+- 左右・回数・順序が指示どおりか
+- ジタバタする・暴れる等の主動作が、怒った表情や静止ポーズだけに置き換わっていないか。動作の強さ・姿勢・否定条件も照合する。
+- 一続きの仕草を細かく分断していないか。手を振って下ろす等のつながる動作は、終了まで同じセグメントでよい。
+- 指定されていない主動作を追加していないか。自然な全身連動と余韻は残す。
 持続動作 (歩く・走る等) の繰り返しセグメントはそのまま残してよい。最大12セグメント。
 
 修正後の完全なセグメント列だけをJSONで返答:
-{"segments": [{"text": "A person ...", "duration": 4}], "expression": null}`;
+{"segments": [{"text": "A person ...", "duration": 4}], "expression": null, "checks": []}
+checks は修正後の区間番号で返す。kindはtravel/jump/crouch/raiseHandのみ。原文で肯定指定された測定可能な動作だけにする。`;
 
 /**
  * GPTが「頭脳」としてエンジン振り分けとARDY用の生成計画 (英訳+動作分割) を作る。
  * @returns {Promise<{engine: 'ardy'|'keyframes', segments?: {text: string, duration: number}[], expression?: string|null}>}
  */
-export async function planArdySegments(text, apiKey, model, { waypointCount = 0, pathMeters = 0 } = {}) {
+export async function planArdySegments(text, apiKey, model, { waypointCount = 0, pathMeters = 0, availableExpressions, request = callOpenAI, verify = true, effort = 'low' } = {}) {
   let userMsg = text;
+  if (Array.isArray(availableExpressions)) {
+    userMsg += `\nアバターで利用できる表情: ${JSON.stringify(availableExpressions)}。表情がない感情も身体の演技で伝える。未対応の表情が見える前提で演技を省略しない。`;
+  }
   if (waypointCount > 0) {
     userMsg +=
       `\n\n(参考: ユーザーは3Dビューに経由地を${waypointCount}個置いており、` +
@@ -648,52 +696,58 @@ export async function planArdySegments(text, apiKey, model, { waypointCount = 0,
       `移動しながら行う動作として計画し、合計durationは歩速1m/s換算で経路を回りきれる長さにしてください。` +
       `この場合 engine は "ardy" にしてください)`;
   }
-  const content = await callOpenAI(
+  const content = await request(
     [
       { role: 'system', content: ARDY_PLAN_PROMPT },
       { role: 'user', content: userMsg },
     ],
     apiKey,
-    model
+    model, undefined, { outputType: 'ardy', effort }
   );
   const plan = JSON.parse(content);
   if (!Array.isArray(plan.segments) || plan.segments.length === 0) {
     throw new Error('GPTの動作分割結果が不正です');
   }
-  const normalize = (segs) => segs
-    .filter((s) => typeof s?.text === 'string' && s.text.trim())
-    .slice(0, 12)
-    .map((s) => ({
-      text: s.text.trim(),
-      duration: Math.max(1, Math.min(30, Number(s.duration) || 5)),
-    }));
+  const normalize = (segs) => {
+    // Never silently drop actions or replace their timing with arbitrary defaults.
+    if (!Array.isArray(segs) || !segs.length || segs.length > 12 || segs.some(s =>
+      typeof s?.text !== 'string' || !s.text.trim() || !Number.isFinite(s.duration) || s.duration <= 0 || s.duration > 120
+    ) || segs.reduce((sum,s) => sum + s.duration,0) > 120) {
+      const error = new Error(t('動作計画に空の動作・不正な時間・対応上限の超過があります。指示を省略しないため生成を中止しました。'));
+      error.code = 'ARDY_INVALID_PLAN';
+      throw error;
+    }
+    return segs.map(s => ({text:s.text.trim(),duration:s.duration}));
+  };
   plan.segments = normalize(plan.segments);
+  plan.checks = normalizeMotionChecks(plan.checks,plan.segments.length);
   if (plan.segments.length === 0) {
     throw new Error('GPTの動作分割結果が不正です');
   }
 
   // LLM監視: 分割結果を再チェックし、抜け・統合を補正する (失敗時は1回目を採用)
-  try {
-    const verifyContent = await callOpenAI(
+  if (verify) try {
+    const verifyContent = await request(
       [
         { role: 'system', content: ARDY_VERIFY_PROMPT },
         { role: 'user', content: `元の指示: ${text}\n\n現在のセグメント:\n${JSON.stringify(plan.segments)}` },
       ],
       apiKey,
-      model
+      model, undefined, { outputType: 'ardy', effort }
     );
     const verified = JSON.parse(verifyContent);
     const vsegs = normalize(Array.isArray(verified.segments) ? verified.segments : []);
-    if (vsegs.length >= plan.segments.length) {
-      plan.segments = vsegs; // 検証で動作が増える/整う場合のみ採用 (減らさない)
-      if (['happy', 'sad', 'angry', 'surprised', 'relaxed'].includes(verified.expression)) {
+    if (vsegs.length) {
+      plan.segments = vsegs; // Removing an unrequested action can also improve fidelity.
+      plan.checks = normalizeMotionChecks(verified.checks,vsegs.length);
+      if (['happy', 'sad', 'angry', 'surprised', 'relaxed', 'neutral'].includes(verified.expression)) {
         plan.expression = verified.expression;
       }
     }
   } catch (e) {
     console.warn('[ARDY] 計画の検証パスに失敗、1回目の分割を使用:', e.message);
   }
-  if (!['happy', 'sad', 'angry', 'surprised', 'relaxed'].includes(plan.expression)) {
+  if (!['happy', 'sad', 'angry', 'surprised', 'relaxed', 'neutral'].includes(plan.expression)) {
     plan.expression = null;
   }
   return plan;
@@ -757,7 +811,7 @@ function randomFlavor() {
     .join('、');
 }
 
-function validateSpec(spec) {
+export function validateSpec(spec) {
   if (typeof spec.duration !== 'number' || spec.duration <= 0) {
     throw new Error('生成されたモーションの duration が不正です');
   }

@@ -2,10 +2,12 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('codexBridge', {
   getStatus: () => ipcRenderer.invoke('codex:get-status'),
+  getUsage: () => ipcRenderer.invoke('codex:get-usage'),
   login: () => ipcRenderer.invoke('codex:login'),
   logout: () => ipcRenderer.invoke('codex:logout'),
   listModels: () => ipcRenderer.invoke('codex:list-models'),
   generateMotion: (request) => ipcRenderer.invoke('codex:generate-motion', request),
+  generateJson: (request) => ipcRenderer.invoke('codex:generate-json', request),
   onAccountChanged: (listener) => {
     const handler = (_event, status) => listener(status);
     ipcRenderer.on('codex:account-changed', handler);

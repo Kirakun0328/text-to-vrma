@@ -117,7 +117,9 @@ export function rescaleSpec(spec, target) {
 }
 
 // その場の動き (移動が少なく、終了時に開始位置付近へ戻る) ならループ向きと判定する
-export function isLoopFriendly(spec) {
+export function isLoopFriendly(spec, intent = spec.originalText ?? spec.name ?? '') {
+  // A stationary gesture can still have a deliberate ending. Do not blend it away.
+  if (/(?:[0-9０-９一二三四五六七八九十]+\s*回|最後|その後|下ろ|おろ|お辞儀|終え|終わ|\b(?:then|finally|finish|ends?|twice|once|bow|lower|lowers)\b|\b\d+\s+times\b|最后|然后|放下|结束|鞠躬|마지막|그다음|내리|마무리|인사)/iu.test(intent)) return false;
   const hips = spec.hips;
   if (!hips?.length) return true;
   const first = hips[0].p;
@@ -128,4 +130,3 @@ export function isLoopFriendly(spec) {
   );
   return endOffset < 0.35 && maxOffset < 1.5;
 }
-

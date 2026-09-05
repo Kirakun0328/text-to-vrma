@@ -9,6 +9,15 @@ const {
   friendlyError,
 } = require('../electron/codex-client.cjs');
 
+test('Codex usage reads account rate limits without starting a generation', async () => {
+  const { client, getTurnCount } = createFakeCodex();
+  try {
+    const usage = await client.getUsage();
+    assert.equal(usage.rateLimits.primary.usedPercent, 25);
+    assert.equal(getTurnCount(), 0);
+  } finally { client.close(); }
+});
+
 function createFakeCodex({ version = '0.144.4' } = {}) {
   const child = new EventEmitter();
   child.stdin = new PassThrough();
@@ -31,6 +40,8 @@ function createFakeCodex({ version = '0.144.4' } = {}) {
           account: { type: 'chatgpt', email: 'test@example.com', planType: 'plus' },
           requiresOpenaiAuth: true,
         };
+      } else if (request.method === 'account/rateLimits/read') {
+        result = { rateLimits: { primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1800000000 }, secondary: null } };
       } else if (request.method === 'model/list') {
         result = {
           data: [{
@@ -101,6 +112,34 @@ test('バージョンを最低要件と比較する', () => {
   assert.equal(compareVersions('0.144.1'), 0);
   assert.ok(compareVersions('0.145.0') > 0);
   assert.ok(compareVersions('0.143.9') < 0);
+});
+
+test('画像レビューはChatGPT認証の一時スレッドに画像とhigh effortを渡す', async () => {
+  const fake = createFakeCodex();
+  const inputs = [];
+  fake.child.stdin.on('data', chunk => {
+    for (const line of String(chunk).trim().split('\n')) {
+      const request = JSON.parse(line);
+      if (request.method === 'turn/start') inputs.push(request.params);
+    }
+  });
+  const output = await fake.client.generateJson({model:'gpt-6-astra',messages:[{role:'user',content:[
+    {type:'text',text:'Return motion JSON'}, {type:'image_url',image_url:{url:'data:image/jpeg;base64,AA=='}}
+  ]}]});
+  assert.equal(JSON.parse(output).name,'draft');
+  assert.equal(inputs[0].effort,'high');
+  assert.equal(inputs[0].input[1].type,'image');
+  assert.deepEqual(inputs[0].outputSchema,MOTION_OUTPUT_SCHEMA);
+  assert.equal(fake.getThreadStartParams().sandbox,'read-only');
+  fake.client.close();
+});
+
+test('画像レビューは任意URLやローカルパスを受け付けない', async () => {
+  const fake = createFakeCodex();
+  await assert.rejects(fake.client.generateJson({model:'gpt-6-astra',messages:[{role:'user',content:[
+    {type:'image_url',image_url:{url:'http://localhost/private'}}
+  ]}]}), /埋め込み/);
+  assert.equal(fake.getTurnCount(),0);
 });
 
 test('Codex出力スキーマはルートの全プロパティを必須にする', () => {

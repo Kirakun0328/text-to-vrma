@@ -17,7 +17,7 @@
       --card2: #1b2232;
       --border: #273149;
       --text: #e9edf6;
-      --muted: #8891a6;
+      --muted: #a5aec2;
       --accent: #34d17a;
       --blue: #4c9aff;
       --purple: #a879ff;
@@ -32,7 +32,7 @@
 
     /* ---------- サイドバー ---------- */
     #panel {
-      width: 430px; min-width: 430px; padding: 16px; gap: 11px;
+      width: clamp(430px, 34vw, 490px); min-width: 430px; padding: 16px; gap: 14px;
       background: var(--panel); border-right: 1px solid var(--border);
       display: flex; flex-direction: column; overflow-y: auto;
     }
@@ -50,7 +50,7 @@
     /* ---------- カード ---------- */
     .card {
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 12px 13px; display: flex; flex-direction: column; gap: 9px;
+      border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px;
     }
     .card-head { display: flex; align-items: flex-start; gap: 9px; }
     .badge {
@@ -66,6 +66,31 @@
 
     /* ---------- 汎用フォーム ---------- */
     .sub { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+    .settings-fold { border-top:1px solid var(--border); margin-top:3px; }
+    .settings-fold > summary { display:flex; align-items:center; gap:10px; padding:13px 2px 3px; cursor:pointer; list-style:none; font-size:12px; font-weight:600; }
+    .settings-fold > summary::-webkit-details-marker { display:none; }
+    .settings-hint { margin-left:auto; font-size:11px; color:var(--muted); font-weight:400; }
+    .settings-arrow { color:var(--muted); }
+    .settings-fold[open] .settings-arrow { transform:rotate(180deg); }
+    .settings-content { display:flex; flex-direction:column; gap:14px; padding:16px 0 3px; }
+    .settings-content > .check, .setting-row, #reviewSpeedRow { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .settings-content > .check { justify-content:flex-start; }
+    .settings-content > .check input { flex:none; }
+    .setting-row > span, #reviewSpeedRow > span { color:var(--muted); font-size:12px; flex-shrink:0; }
+    .inline.setting-row select, #reviewSpeedRow select { width:auto; flex:1; min-width:0; max-width:250px; }
+    .setting-row #ardyDuration { width:auto; flex:1; min-width:0; max-width:250px; }
+    #ardyState { font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
+    #correctionHelp { padding-top:10px; border-top:1px solid var(--border); }
+    #correctionHelp p { margin-top:8px; }
+    #correctionSettings .settings-content { gap:10px; padding-top:12px; }
+    #correctionSettings .correction-option { display:flex; align-items:flex-start; justify-content:flex-start; gap:10px; padding:12px; border:1px solid var(--border); border-radius:9px; background:var(--card2); cursor:pointer; color:var(--text); }
+    #correctionSettings .correction-option input { order:0; flex:none; margin-top:2px; }
+    #correctionSettings .correction-option:has(input:checked) { border-color:rgba(52,209,122,.45); }
+    #correctionSettings .correction-option:has(input:disabled) { opacity:.6; cursor:default; }
+    .option-copy { min-width:0; display:flex; flex-direction:column; gap:5px; line-height:1.5; }
+    #correctionHelp { padding-top:4px; border-top:0; }
+    #ardySmoothRow { padding:8px 0; }
+    #panel input:focus-visible, #panel select:focus-visible, #panel textarea:focus-visible, summary:focus-visible { outline:2px solid #9a85ef; outline-offset:2px; }
     input[type="password"], input[type="text"], input[type="number"], select, textarea {
       width: 100%; background: var(--card2); color: var(--text);
       border: 1px solid var(--border); border-radius: 9px; font-family: inherit;
@@ -73,7 +98,7 @@
     input[type="password"], input[type="text"], input[type="number"], select { padding: 9px 10px; font-size: 12.5px; }
     select:focus, input:focus, textarea:focus { outline: none; border-color: var(--blue); }
     textarea {
-      height: 92px; resize: vertical; padding: 11px; font-size: 14px; line-height: 1.5;
+      height: 116px; resize: vertical; padding: 12px; font-size: 15px; line-height: 1.6;
     }
     button {
       border: none; border-radius: 9px; padding: 10px 14px; font-size: 13px; font-weight: 600;
@@ -110,7 +135,9 @@
     .pill.ok { background: rgba(52,209,122,0.14); color: var(--accent); border: 1px solid rgba(52,209,122,0.4); }
     .auth-box { display: flex; flex-direction: column; gap: 9px; }
     /* API設定をARDY用スロットへ移動したとき、空の復帰先はカード内の余白を作らない */
-    #apiSettingsHome:empty { display: none; }
+    /* Hidden or moved settings must not leave empty flex items and extra gaps. */
+    :is(#apiSettingsHome, #codexSettingsHome, #claudeSettingsHome):not(:has(> .auth-box:not(.hidden))) { display: none; }
+    #ardySettings > .auth-actions:not(:has(> :not(.hidden))) { display: none; }
     .auth-state { font-size: 11.5px; line-height: 1.5; color: var(--muted); }
     .auth-state.ok { color: var(--accent); }
     .auth-state.err { color: #ff8484; }
@@ -120,6 +147,19 @@
     .ardy-fold > summary { cursor: pointer; list-style: none; font-size: 12px; color: var(--muted); }
     .ardy-fold > summary::-webkit-details-marker { display: none; }
     .ardy-fold[open] > summary { margin-bottom: 8px; }
+    .ardy-fold > .ai-settings-toggle { display:flex; align-items:center; gap:10px; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--card2); color:var(--text); }
+    .ai-settings-toggle:hover { border-color:var(--muted); }
+    .ai-settings-toggle:focus-visible { outline:2px solid #ab80ff; outline-offset:3px; }
+    .toggle-hint { margin-left:auto; font-size:11px; color:var(--muted); }
+    .ardy-fold[open] .toggle-arrow { transform:rotate(180deg); }
+    #reviewActions { position:absolute; top:74px; left:16px; right:16px; z-index:3; display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; pointer-events:none; }
+    #reviewActions button { position:static; pointer-events:auto; max-width:100%; background:var(--card2); color:var(--text); border:1px solid var(--border); }
+    #vrmName { white-space:pre-line; overflow-wrap:anywhere; text-align:left; }
+    #reviewProgress { position:absolute; bottom:130px; left:50%; transform:translateX(-50%); width:min(460px,calc(100% - 32px)); z-index:4; padding:18px 20px; border:1px solid #8b6ac7; border-radius:14px; background:rgba(24,29,45,.97); box-shadow:0 8px 28px #0006; pointer-events:none; }
+    #reviewProgress .progress-heading { display:flex; align-items:center; gap:9px; color:#ceb5ff; font-size:13px; font-weight:700; }
+    #reviewProgressStage { margin:10px 0 6px; font-size:18px; font-weight:700; line-height:1.5; color:var(--text); }
+    #reviewProgressSection { color:var(--muted); font-size:13px; line-height:1.5; }
+    #reviewProgress progress { width:100%; height:5px; margin-top:14px; accent-color:#b58aff; }
 
     /* 例チップ */
     .chips-label { font-size: 11px; color: var(--muted); }
@@ -152,6 +192,13 @@
     }
     #status.ok { color: var(--accent); }
     #status.err { color: #ff8484; }
+    #reviewModeNote { text-wrap:pretty; }
+    #playbackCard { gap:12px; }
+    #playbackTitle { color:var(--accent); font-size:15px; }
+    #playbackMeta { display:flex; flex-wrap:wrap; gap:8px; }
+    #playbackMeta span { background:var(--card2); border:1px solid var(--border); border-radius:7px; padding:5px 9px; font-size:13px; }
+    #playbackPrompt { white-space:pre-wrap; overflow-wrap:anywhere; margin-top:10px; }
+    #playbackTime { margin-top:8px; }
 
     /* 履歴 */
     .head-row { display: flex; align-items: center; justify-content: space-between; }
@@ -172,7 +219,22 @@
     #appFooter button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px; padding: 0; text-decoration: underline; }
 
     /* ---------- 3Dプレビュー ---------- */
-    #viewerWrap { flex: 1; position: relative; background: #0d1119; }
+    #viewerWrap { flex: 1; min-width:0; position: relative; background: #0d1119; }
+    #reviewResults, #candidateResults { margin:auto; width:min(900px,94vw); max-height:88vh; padding:22px; background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:14px; overflow:auto; }
+    #candidateResults::backdrop { background:#0009; }
+    .candidate-row { padding:16px; border:1px solid var(--border); border-radius:10px; margin-top:12px; }
+    .candidate-row.selected { border-color:#32d889; }
+    .candidate-row p { white-space:pre-line; }
+    #reviewResults::backdrop { background:#0009; }
+    #reviewResults .head-row { margin-bottom:14px; }
+    #reviewResults details { margin-top:16px; }
+    #reviewResults summary, #correctionHelp summary, #codexUsageRows summary { cursor:pointer; font-size:12px; color:var(--muted); }
+    #reviewResults pre, #reviewPlan { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; line-height:1.7; margin-top:10px; }
+    #reviewImages { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px; }
+    #reviewImages img { width:100%; border-radius:8px; }
+    #reviewCompareBtn { position:absolute; top:74px; right:16px; z-index:3; background:var(--card2); color:var(--text); border:1px solid var(--border); }
+    #codexUsage .auth-actions { justify-content:space-between; align-items:center; }
+    #codexUsageRefresh { flex:0 0 auto; padding:5px 12px; width:auto; }
     .viewer-head {
       position: absolute; top: 0; left: 0; right: 0; z-index: 10;
       display: flex; align-items: center; justify-content: space-between;
@@ -239,6 +301,63 @@
     }
     #updateBanner a { color: var(--accent); font-weight: bold; }
     #updateBanner button { background: none; border: none; color: #8b93a5; cursor: pointer; font-size: 14px; margin-left: 12px; }
+    :root { color-scheme:dark; }
+    #panel, #history, textarea { scrollbar-width:thin; scrollbar-color:#46516b transparent; }
+    #panel .card-title { font-size:16px; line-height:1.5; }
+    #panel .card-head { margin-bottom:3px; }
+    #panel .badge { width:26px; height:26px; min-width:26px; }
+    #panel .card-sub { font-size:12px; }
+    #panel .sub, #panel .settings-hint, #panel .toggle-hint { font-size:12px; line-height:1.6; }
+    #panel .check, #panel .inline, #panel .settings-fold > summary { font-size:14px; }
+    #panel .setting-row > span { font-size:13px; color:var(--text); }
+    #panel select, #panel input { font-size:14px; }
+    #panel select { min-height:40px; }
+    #panel label.check { min-height:28px; line-height:1.6; }
+    #panel label.check input { width:17px; height:17px; flex:none; }
+    #panel textarea { height:132px; font-size:15px; line-height:1.65; }
+    #panel textarea::placeholder { color:var(--muted); opacity:.85; }
+    .settings-fold > summary { min-height:42px; padding:10px 2px; }
+    .settings-fold > summary:hover { color:#cdb4ff; }
+    #candidateHelp > summary, #correctionHelp > summary, #advancedFold > summary { display:list-item; list-style:disclosure-closed inside; padding:5px 0; }
+    #candidateHelp[open] > summary, #correctionHelp[open] > summary, #advancedFold[open] > summary { list-style-type:disclosure-open; }
+    #ardyState { padding:6px 9px; border-left:2px solid var(--border); background:var(--panel); border-radius:5px; font-size:12px; }
+    #ardyState.ok { border-left-color:var(--accent); }
+    #panel .ai-settings-toggle { font-size:14px; }
+    #reviewModeNote, #ardyLocalOnlyNote { padding:8px 10px; border-left:2px solid var(--border); background:var(--panel); border-radius:5px; text-wrap:pretty; }
+    #genProgress { padding:12px; background:var(--card); border:1px solid var(--border); border-radius:10px; }
+    #genProgressText { margin-top:8px; line-height:1.6; }
+    #generateBtn { min-height:50px; }
+    button:focus-visible { outline:2px solid #bda2ff; outline-offset:3px; }
+    .hist-item { padding:10px; }
+    .hist-item button { min-height:32px; }
+    .viewer-bar { gap:12px; }
+    .viewer-bar .grp { padding-right:12px; }
+    #playbackBar { width:min(540px,calc(100% - 32px)); }
+    @media (max-width:820px) {
+      #app { flex-direction:column; }
+      #viewerWrap { order:-1; flex:none; height:42vh; min-height:260px; border-bottom:1px solid var(--border); }
+      #panel { width:100%; min-width:0; flex:1; padding:12px; border-right:0; }
+      .viewer-head { padding:10px; }
+      .viewer-title { font-size:12px; }
+      .viewer-actions { gap:4px; }
+      .viewer-actions button { padding:7px; font-size:11px; }
+      .viewer-bar { padding:8px; gap:8px; }
+      .viewer-bar .grp { gap:5px; padding-right:0; }
+      #reviewActions { top:52px; left:8px; right:8px; gap:4px; }
+      #reviewActions button { font-size:11px; padding:7px; }
+      #reviewProgress { bottom:100px; padding:10px 12px; }
+      #reviewProgressStage { font-size:15px; }
+      #playbackBar { bottom:62px; }
+    }
+    @media (max-width:420px) {
+      .card { padding:12px; }
+      .toggle-hint { display:none; }
+      .ai-settings-toggle .toggle-arrow { margin-left:auto; }
+      .setting-row > span { flex-shrink:1; }
+      .inline.setting-row select, .setting-row #ardyDuration { max-width:58%; }
+      #panel .brand { font-size:17px; }
+      #panel select.lang { font-size:12px; }
+    }
     .hidden { display: none !important; }
   </style>
 </head>
@@ -279,17 +398,18 @@
         </div>
         <div class="engine-top">
           <select id="authMode">
-            <option value="api-key" data-i18n="engine.apiKey">OpenAI APIキー</option>
-            <option value="claude" data-i18n="engine.claude">Claude API</option>
-            <option value="codex" data-i18n="engine.codex">Codexサブスクリプション</option>
             <option value="ardy" data-i18n="engine.ardy">ARDYローカルエンジン</option>
+            <option value="codex" data-i18n="engine.codex">Codexサブスクリプション</option>
+            <option value="api-key" data-i18n="engine.apiKey">OpenAI API</option>
+            <option value="claude" data-i18n="engine.claude">Claude API</option>
           </select>
         </div>
         <div id="apiSettingsHome">
           <div id="apiSettings" class="auth-box">
             <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" data-i18n-placeholder="apiKey.ph" />
             <select id="apiModelSelect">
-              <option value="gpt-5.6-sol" data-i18n="model.best">gpt-5.6-sol (最高精度)</option>
+              <option value="gpt-6-astra" data-i18n="model.astra">GPT-6 Astra (最高精度)</option>
+              <option value="gpt-5.6-sol" data-i18n="model.best">gpt-5.6-sol (高精度)</option>
               <option value="gpt-5.6-terra" data-i18n="model.balanced">gpt-5.6-terra (バランス)</option>
               <option value="gpt-5.6-luna" data-i18n="model.low">gpt-5.6-luna (低コスト)</option>
             </select>
@@ -303,7 +423,7 @@
             </details>
           </div>
         </div>
-        <div id="claudeSettings" class="auth-box hidden">
+        <div id="claudeSettingsHome"><div id="claudeSettings" class="auth-box hidden">
           <input type="password" id="claudeApiKey" placeholder="Claude APIキー (sk-ant-...)" data-i18n-placeholder="claudeKey.ph" />
           <select id="claudeModelSelect">
             <option value="claude-opus-5" data-i18n="model.claudeOpus">claude-opus-5 (最高精度)</option>
@@ -311,7 +431,8 @@
             <option value="claude-haiku-4-5" data-i18n="model.claudeHaiku">claude-haiku-4-5 (低コスト)</option>
           </select>
         </div>
-        <div id="codexSettings" class="auth-box hidden">
+        </div>
+        <div id="codexSettingsHome"><div id="codexSettings" class="auth-box hidden">
           <div id="codexAuthState" class="auth-state" data-i18n="codex.checking">Codex CLIを確認中...</div>
           <select id="codexModelSelect" disabled>
             <option value="" data-i18n="codex.afterLogin">ログイン後にモデルを取得します</option>
@@ -320,25 +441,72 @@
             <button id="codexLoginBtn" class="btn-blue" data-i18n="btn.codexLogin">ChatGPTでログイン</button>
             <button id="codexLogoutBtn" class="btn-soft" disabled data-i18n="btn.codexLogout">ログアウト</button>
           </div>
+          <div id="codexUsage" style="margin-top:12px;font-size:12px">
+            <div class="auth-actions"><strong data-i18n="Codexの使用量">Codexの使用量</strong><button id="codexUsageRefresh" class="btn-soft" disabled data-i18n="更新">更新</button></div>
+            <div id="codexUsageRows" aria-live="polite"></div>
+            <p id="codexUsageUpdated" class="sub" data-i18n="ChatGPTでログインすると表示します。">ChatGPTでログインすると表示します。</p>
+            <p class="sub" data-i18n="同じアカウントのCodex全体の利用枠です。このアプリ以外の利用も含みます。表示中は約1分ごと、生成後にも更新します。">同じアカウントのCodex全体の利用枠です。このアプリ以外の利用も含みます。表示中は約1分ごと、生成後にも更新します。</p>
+          </div>
+        </div>
         </div>
         <div id="ardySettings" class="auth-box hidden">
           <div class="engine-top">
-            <div id="ardyState" class="auth-state" style="flex:1" data-i18n="ardy.unknown">エンジン未確認</div>
+          <div id="ardyState" class="auth-state" style="flex:1" data-i18n="ardy.unknown">エンジン未確認</div>
           </div>
           <div class="auth-actions">
             <button id="ardyStartBtn" class="btn-blue hidden" data-i18n="btn.engineStart">エンジンを起動</button>
             <button id="ardySetupBtn" class="btn-soft hidden" data-i18n="btn.engineSetup">⬇ エンジンをセットアップ (初回のみ)</button>
           </div>
           <details class="ardy-fold">
-            <summary class="section-sub" data-i18n="ardy.gptHead">🧠 GPT (頭) — 任意 (精度アップ)</summary>
-            <p class="sub" style="margin:6px 0" data-i18n="ardy.gptNote">OpenAI APIキーを入れると、GPTが日本語の解釈と複雑な指示の分割を担当して精度が上がります。空欄でもローカル翻訳で動作します。</p>
+            <summary class="section-sub ai-settings-toggle"><span data-i18n="ardy.gptHead">🧠 モーション生成に使うAI</span><span class="toggle-hint" data-i18n="設定を開く">設定を開く</span><span class="toggle-arrow" aria-hidden="true">⌄</span></summary>
+            <p class="sub" style="margin:6px 0" data-i18n="ardy.gptNote">既定はARDYのみです。必要に応じてAIによる動作の計画・修正を追加できます。</p>
+            <select id="ardyPlanner">
+              <option value="none" data-i18n="ARDYのみ（既定）">ARDYのみ（既定）</option>
+              <option value="codex" data-i18n="Codexサブスクリプション">Codexサブスクリプション</option>
+              <option value="openai">OpenAI API</option>
+              <option value="claude">Claude API</option>
+            </select>
+            <p id="ardyLocalOnlyNote" class="sub hidden" data-i18n="Codexの利用枠・API料金を使わず、ローカルで翻訳とモーション生成を行います。AIによる計画・修正は利用しません。">Codexの利用枠・API料金を使わず、ローカルで翻訳とモーション生成を行います。AIによる計画・修正は利用しません。</p>
             <div id="ardyGptSlot"></div>
           </details>
+          <label class="inline setting-row"><span data-i18n="生成候補">生成候補</span>
+            <select id="ardyCandidateCount">
+              <option value="1" data-i18n="通常（1候補）">通常（1候補）</option>
+              <option value="3" data-i18n="比較して選ぶ（3候補）">比較して選ぶ（3候補）</option>
+            </select>
+          </label>
+          <details id="candidateHelp" class="ardy-fold"><summary data-i18n="候補比較について">候補比較について</summary><p class="sub" data-i18n="ARDYで3回生成し、アバター上の足滑り・沈み込みを比較します。動きが大幅に減った候補は自動で選びません。追加のAI呼び出しはなく、ARDYの生成時間は増えます。">ARDYで3回生成し、アバター上の足滑り・沈み込みを比較します。動きが大幅に減った候補は自動で選びません。追加のAI呼び出しはなく、ARDYの生成時間は増えます。</p></details>
         </div>
-        <label class="check" title="生成後にもう1パス、可動域・軌道・緩急のセルフレビューを行って品質を上げます。時間とAPIコストは約2倍になります。" data-i18n-title="refine.title">
-          <input type="checkbox" id="refineCheck" checked />
-          <span data-i18n="refine.label">🔍 自己修正 (2パス生成で品質向上)</span>
+        <label id="reviewSpeedRow" class="inline setting-row hidden"><span data-i18n="生成品質">生成品質</span>
+          <select id="reviewSpeed">
+            <option value="balanced" selected data-i18n="標準">標準</option>
+            <option value="fast" data-i18n="速度優先">速度優先</option>
+            <option value="quality" data-i18n="品質優先">品質優先</option>
+          </select>
         </label>
+        <p id="reviewModeNote" class="sub hidden"></p>
+        <details id="correctionSettings" class="settings-fold">
+          <summary><span data-i18n="修正設定">修正設定</span><span class="settings-arrow" style="margin-left:auto" aria-hidden="true">⌄</span></summary>
+          <div class="settings-content">
+        <label class="check correction-option" title="生成した動きをAIが確認し、必要に応じて修正します。追加の時間とAIの利用枠を使います。" data-i18n-title="refine.title">
+          <input type="checkbox" id="refineCheck" />
+          <span class="option-copy"><span data-i18n="refine.label">生成後に自動で修正する</span><span class="sub" data-i18n="OFFでも、生成後に手動で修正できます。">OFFでも、生成後に手動で修正できます。</span></span>
+        </label>
+        <label id="reviewImageOption" class="check correction-option">
+          <input type="checkbox" id="visualReviewCheck" />
+          <span class="option-copy"><span data-i18n="修正に画像も使う">修正に画像も使う</span><span class="sub" data-i18n="手動で修正するときにも使います。">手動で修正するときにも使います。</span><span id="visualReviewNotice" class="sub hidden"></span></span>
+        </label>
+        <details id="correctionHelp">
+          <summary data-i18n="修正の使い方">修正の使い方</summary>
+          <p class="sub" data-i18n="自動修正はOFFで始まります。ONにした場合だけ、生成後にAIが動きを確認して修正します。">自動修正はOFFで始まります。ONにした場合だけ、生成後にAIが動きを確認して修正します。</p>
+          <p class="sub" data-i18n="画像も使うをONにすると、見た目も確認します。撮影は自動なので、画像の用意は不要です。"><strong>画像も使う</strong>をONにすると、見た目も確認します。撮影は自動なので、画像の用意は不要です。</p>
+          <p class="sub" data-i18n="ARDYでは、まず修正が必要かを確認します。不要と判断したら元の動きを採用し、理由を比較画面に表示します。">ARDYでは、まず修正が必要かを確認します。不要と判断したら元の動きを採用し、理由を比較画面に表示します。</p>
+          <p class="sub" data-i18n="「この動きを修正」は自動の見直しがOFFでも使えます。長い動きは区間に分けて修正します。長いほど処理時間とAIの使用量が増えます。Codexはサブスクの利用枠、APIは各サービスのAPI料金を使います。AIを「使わない」にすると修正は利用できません。">「この動きを修正」は自動の見直しがOFFでも使えます。長い動きは区間に分けて修正します。長いほど処理時間とAIの使用量が増えます。Codexはサブスクの利用枠、APIは各サービスのAPI料金を使います。AIを「使わない」にすると修正は利用できません。</p>
+        </details>
+
+
+          </div>
+        </details>
       </section>
 
       <!-- 3. テキスト指示 -->
@@ -348,41 +516,69 @@
           <div><div class="card-title" data-i18n="sec.text">💬 モーションをテキストで指示</div>
           <div class="card-sub" data-i18n="sec.textSub">どんな動きをするか、自由に指示してください。</div></div>
         </div>
-        <textarea id="textInput" placeholder="例: その場で歩く&#10;例: 喜んでジャンプする&#10;例: 手を振る&#10;例: 悲しそうにうつむく" data-i18n-placeholder="input.ph"></textarea>
-        <div id="waypointRow" class="hidden">
-          <label class="check" title="ONにすると3Dビューの床をクリックして経由地を置けます。右クリックで1つ取り消し。" data-i18n-title="wp.labelTitle">
-            <input type="checkbox" id="waypointCheck" /> <span data-i18n="wp.label">📍 経由地モード (床クリックで配置)</span>
-          </label>
-          <button id="waypointClearBtn" class="btn-soft hidden" style="margin-top:8px;width:100%" data-i18n="wp.clear">経由地をクリア</button>
-        </div>
-        <div class="inline" title="生成するモーションの長さ (秒)。空欄なら内容から自動判定します (全エンジン共通)。" data-i18n-title="ardy.durTitle">
+        <textarea id="textInput" placeholder="例: その場で歩く&#10;例: 喜んでジャンプする&#10;例: 手を振る&#10;例: 悲しそうにうつむく" data-i18n-placeholder="input.ph" data-i18n-aria-label="sec.text"></textarea>
+        <label class="inline setting-row" title="生成するモーションの長さ (秒)。空欄なら内容から自動判定します (全エンジン共通)。" data-i18n-title="ardy.durTitle">
           <span data-i18n="ardy.durLabel">⏱ 長さ (秒)</span>
           <input type="number" id="ardyDuration" min="0.1" step="0.1" placeholder="自動" data-i18n-placeholder="ardy.durAuto" />
-        </div>
-        <label class="check" title="ONにすると、指定秒数どおりに固定せず、動きが自然に収まる長さへ自動で調整します (指定より長くなる場合あり)。" data-i18n-title="ardy.durAutoFitTitle">
-          <input type="checkbox" id="autoLengthCheck" /> <span data-i18n="ardy.durAutoFit">長さを自動補正 (指定より長くなる場合あり)</span>
         </label>
-        <p class="sub" data-i18n="ardy.durHint">※ 短い秒数に多くの動作を詰めると、動きが速すぎたり不自然になることがあります。その場合は秒数を増やすか「自動補正」をONにしてください。</p>
-        <label class="inline" title="生成したモーションを繰り返し再生するか。" data-i18n-title="loop.title">
+        <label class="inline setting-row" title="生成したモーションを繰り返し再生するか。" data-i18n-title="loop.title">
           <span data-i18n="loop.label">ループ再生:</span>
-          <select id="loopSelect" style="flex:1">
+          <select id="loopSelect">
             <option value="auto" data-i18n="loop.auto">自動</option>
             <option value="on" data-i18n="loop.on">常にループ</option>
             <option value="off" data-i18n="loop.off">1回だけ再生</option>
           </select>
         </label>
+        <details id="motionDetails" class="settings-fold">
+          <summary><span data-i18n="動きの詳細設定">動きの詳細設定</span><span class="settings-arrow" style="margin-left:auto" aria-hidden="true">⌄</span></summary>
+          <div class="settings-content">
+            <div id="ardySmoothRow">
+              <label class="check">
+                <input id="ardySmoothCheck" type="checkbox" checked />
+                <span data-i18n="全身の動きをなめらかに補正">全身の動きをなめらかに補正</span>
+              </label>
+              <p class="sub" style="margin-top:6px" data-i18n="標準でON。全身の急な角度変化をやわらげます。足の接地付近では補正を抑え、移動経路を保ちます。">標準でON。全身の急な角度変化をやわらげます。足の接地付近では補正を抑え、移動経路を保ちます。</p>
+            </div>
+            <div id="waypointRow" class="hidden">
+              <label class="check" title="ONにすると3Dビューの床をクリックして経由地を置けます。右クリックで1つ取り消し。" data-i18n-title="wp.labelTitle">
+                <input type="checkbox" id="waypointCheck" /> <span data-i18n="wp.label">📍 経由地モード (床クリックで配置)</span>
+              </label>
+              <button id="waypointClearBtn" class="btn-soft hidden" style="margin-top:8px;width:100%" data-i18n="wp.clear">経由地をクリア</button>
+            </div>
+            <label class="check" title="長さが空欄ならON、秒数を入力するとOFFになります。手動でONにすると、動きに合わせて長さを調整します。" data-i18n-title="ardy.durAutoFitTitle">
+              <input type="checkbox" id="autoLengthCheck" checked /> <span data-i18n="ardy.durAutoFit">長さを自動補正</span>
+            </label>
+            <p class="sub" data-i18n="ardy.durHint">短い秒数に多くの動作を詰めると不自然になることがあります。秒数を増やすか「自動補正」をONにしてください。</p>
+          </div>
+        </details>
       </section>
 
       <!-- 生成ボタン -->
       <button id="generateBtn">
         <span data-i18n="btn.generate">▶ モーション生成 &amp; 再生</span>
       </button>
+      <div id="status" class="hidden" role="status" aria-live="polite"></div>
       <div id="genProgress" class="hidden">
         <div class="gen-progress-track"><div id="genProgressBar" class="gen-progress-bar"></div></div>
         <p class="sub" id="genProgressText"></p>
       </div>
 
+      <div id="playbackCard" class="card hidden">
+        <strong id="playbackTitle"></strong>
+        <div id="playbackMeta"></div>
+        <p id="generationRoute" class="sub hidden"></p>
+        <details class="settings-fold">
+          <summary><span data-i18n="生成の詳細">生成の詳細</span><span class="settings-arrow" style="margin-left:auto" aria-hidden="true">⌄</span></summary>
+          <p id="playbackPrompt" class="sub"></p>
+          <p id="playbackTime" class="sub"></p>
+        </details>
+      </div>
       <!-- 4. 書き出し・共有 -->
+      <details id="motionCheckResults" class="card hidden">
+        <summary id="motionCheckSummary"></summary>
+        <div id="motionCheckRows"></div>
+        <p class="sub" data-i18n="位置の変化からの参考判定です。回数・厳密な順序・感情・自然さの合格判定ではありません。">位置の変化からの参考判定です。回数・厳密な順序・感情・自然さの合格判定ではありません。</p>
+      </details>
       <section class="card" id="outputSection">
         <div class="card-head">
           <span class="badge b4">4</span>
@@ -399,8 +595,6 @@
           <span data-i18n="expr.label">😊 表情を含めて保存 (対応アプリでのみ再生されます)</span>
         </label>
       </section>
-
-      <div id="status" class="hidden"></div>
 
       <!-- 生成履歴 -->
       <section class="card">
@@ -443,6 +637,38 @@
     </div>
 
     <div id="viewerWrap">
+      <div id="reviewActions">
+      <button id="candidateCompareBtn" class="hidden" aria-haspopup="dialog" data-i18n="生成候補を比較">生成候補を比較</button>
+      <button id="reviewCompareBtn" class="hidden" aria-haspopup="dialog" data-i18n="修正前後を比較">修正前後を比較</button>
+      <button id="manualReviewBtn" class="hidden" disabled data-i18n="この動きを修正">この動きを修正</button>
+      </div>
+      <div id="reviewProgress" class="hidden" role="status" aria-live="polite" aria-atomic="true">
+        <div class="progress-heading" data-i18n="AIがモーションを修正中">AIがモーションを修正中</div>
+        <div id="reviewProgressStage"></div>
+        <div id="reviewProgressSection"></div>
+        <div id="reviewProgressPercent" class="sub" style="margin-top:10px"></div>
+        <progress id="reviewProgressBar" max="100" value="0" aria-labelledby="reviewProgressPercent"></progress>
+      </div>
+      <dialog id="candidateResults" aria-labelledby="candidateTitle">
+        <div class="head-row"><h2 id="candidateTitle" data-i18n="生成候補を比較">生成候補を比較</h2><button id="candidateCloseBtn" class="btn-soft" data-i18n="閉じる">閉じる</button></div>
+        <p class="sub" data-i18n="数値による選択です。指示への一致や演技の良さは、再生して比較してください。">数値による選択です。指示への一致や演技の良さは、再生して比較してください。</p>
+        <p id="candidateError" class="sub"></p>
+        <div id="candidateRows"></div>
+      </dialog>
+      <dialog id="reviewResults" aria-labelledby="reviewTitle">
+        <div class="head-row"><h2 id="reviewTitle" class="card-title" data-i18n="修正前後を比較">修正前後の比較</h2><button id="reviewCloseBtn" class="btn-soft" data-i18n="閉じる">閉じる</button></div>
+        <p id="reviewOutcome" class="sub"></p>
+        <p id="reviewAssessment" class="sub hidden"></p>
+        <div class="inline">
+          <button id="reviewDraftBtn" class="btn-soft" data-i18n="▶ 修正前を再生">▶ 修正前を再生</button>
+          <button id="reviewCandidateBtn" class="btn-soft" data-i18n="▶ 修正後を再生">▶ 修正後を再生</button>
+          <button id="reviewAdoptBtn" class="btn-blue" data-i18n="この修正版を採用">この修正版を採用</button>
+        </div>
+        <div id="reviewPlan"></div>
+        <details><summary data-i18n="比較画像（正面・側面）">比較画像（正面・側面）</summary><div id="reviewImages"></div></details>
+        <details><summary data-i18n="測定値・処理時間">測定値・処理時間</summary><pre id="reviewMetrics"></pre></details>
+        <details><summary data-i18n="詳細データ（JSON・ARDYへの英語指示）">詳細データ（JSON・ARDYへの英語指示）</summary><pre id="reviewRawPlan"></pre><button id="reviewDownloadBtn" class="btn-soft" data-i18n="比較データを保存">比較データを保存</button></details>
+      </dialog>
       <div class="viewer-head">
         <div class="viewer-title" data-i18n="viewer.title">3Dプレビュー</div>
         <div class="viewer-actions">

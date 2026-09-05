@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { prepareContinuousLoop } from './loopPlayback.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import {
   VRMAnimationLoaderPlugin,
@@ -215,7 +216,19 @@ export class Viewer {
       if (obj.isSkinnedMesh || obj.isMesh) obj.frustumCulled = false;
     });
     this.mixer = new THREE.AnimationMixer(vrm.scene);
+    this._loopStates=new WeakMap();
+    this.mixer.addEventListener('loop',event=>{
+      const state=this._loopStates.get(event.action);
+      if(state)state.cycles+=event.loopDelta;
+    });
     this.scene.add(vrm.scene);
+    vrm.scene.updateMatrixWorld(true);
+    this.reviewSkeleton = { units: 'meters', restPositions: {}, localOffsets: {}, availableExpressions: this.vrm.expressionManager?.expressions.map(e=>e.expressionName) ?? [] };
+    for (const [name, bone] of Object.entries(vrm.humanoid.normalizedHumanBones)) {
+      if (!bone?.node) continue;
+      this.reviewSkeleton.restPositions[name] = bone.node.getWorldPosition(new THREE.Vector3()).toArray();
+      this.reviewSkeleton.localOffsets[name] = bone.node.position.toArray();
+    }
 
     // モデルの身長に合わせてカメラをフレーミング
     const bbox = new THREE.Box3().setFromObject(vrm.scene);
@@ -239,9 +252,12 @@ export class Viewer {
     const vrmAnimation = gltf.userData.vrmAnimations?.[0];
     if (!vrmAnimation) throw new Error('VRMA アニメーションの解析に失敗しました');
 
-    const clip = createVRMAnimationClip(vrmAnimation, this.vrm);
+    const source = createVRMAnimationClip(vrmAnimation, this.vrm);
+    const prepared = loop ? prepareContinuousLoop(source,this.vrm.humanoid.getNormalizedBoneNode('hips')?.name) : {clip:source,state:null};
+    const clip=prepared.clip;
     this.mixer.stopAllAction();
     const action = this.mixer.clipAction(clip);
+    if(prepared.state)this._loopStates.set(action,prepared.state);
     action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
     action.clampWhenFinished = true;
     action.play();

@@ -1,6 +1,9 @@
 const { EventEmitter } = require('node:events');
 const { execFile, spawn } = require('node:child_process');
 const readline = require('node:readline');
+const path = require('node:path');
+const { existsSync } = require('node:fs');
+const LOCAL_CODEX = path.join(__dirname, '..', 'node_modules', '.bin', process.platform === 'win32' ? 'codex.cmd' : 'codex');
 
 const MIN_CODEX_VERSION = [0, 144, 1];
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -98,6 +101,40 @@ const MOTION_OUTPUT_SCHEMA = {
   },
 };
 
+const objectSchema = properties => ({ type: 'object', additionalProperties: false, required: Object.keys(properties), properties });
+const PLAN_OUTPUT_SCHEMA = objectSchema({
+  duration: { type: 'number', minimum: 1, maximum: 15 },
+  intent: { type: 'string' }, ending: { type: 'string' },
+  phases: { type: 'array', minItems: 1, maxItems: 8, items: objectSchema({
+    start: { type: 'number' }, end: { type: 'number' },
+    action: { type: 'string' }, anticipation: { type: 'string' }, weightShift: { type: 'string' },
+    gaze: { type: 'string' }, timing: { type: 'string' },
+    support: { type: 'string', enum: ['both', 'left', 'right', 'none'] },
+    targets: { type: 'array', items: objectSchema({
+      bone: { type: 'string', enum: ['leftHand', 'rightHand', 'leftFoot', 'rightFoot'] },
+      position: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'number' } },
+    }) },
+  }) },
+});
+const ARDY_PLAN_SCHEMA = objectSchema({
+  engine: { type: 'string', enum: ['ardy', 'keyframes'] },
+  segments: { type: 'array', minItems: 1, maxItems: 12, items: objectSchema({ text: { type: 'string' }, duration: { type: 'number' } }) },
+  expression: { type: ['string', 'null'] },
+  checks: {type:'array',maxItems:48,items:objectSchema({kind:{type:'string',enum:['travel','jump','crouch','raiseHand']},segmentIndex:{type:'integer',minimum:0,maximum:11},side:{type:'string',enum:['left','right','both']}})},
+});
+const MOTION_PATCH_SCHEMA = objectSchema({
+  summary: { type: 'string' },
+  issues: { type: 'array', maxItems: 8, items: objectSchema({ start: { type: 'number' }, end: { type: 'number' }, bone: { type: 'string', enum: MOTION_BONE_NAMES }, problem: { type: 'string' }, change: { type: 'string' } }) },
+  rotations: { type: 'array', maxItems: 12, items: objectSchema({ bone: { type: 'string', enum: MOTION_BONE_NAMES }, keys: { ...rotationTrackSchema(), minItems: 2, maxItems: 12 } }) },
+  root: { ...MOTION_OUTPUT_SCHEMA.properties.hips, maxItems: 12 },
+});
+const MOTION_VERDICT_SCHEMA = objectSchema({
+  improved: { type: 'boolean' }, reason: { type: 'string' },
+  resolvedIssues: { type: 'array', items: { type: 'string' } },
+  remainingIssues: { type: 'array', items: { type: 'string' } },
+});
+const MOTION_ASSESSMENT_SCHEMA = objectSchema({ needed: { type: 'boolean' }, reason: { type: 'string' }, issues: { type: 'array', items: { type: 'string' } } });
+
 function compareVersions(version, minimum = MIN_CODEX_VERSION) {
   const parts = version.split('.').map((value) => Number.parseInt(value, 10));
   for (let index = 0; index < minimum.length; index += 1) {
@@ -126,7 +163,7 @@ function friendlyError(error) {
 }
 
 class CodexClient extends EventEmitter {
-  constructor({ command = 'codex', cwd, spawnProcess = spawn, exec = execFile } = {}) {
+  constructor({ command = existsSync(LOCAL_CODEX) ? LOCAL_CODEX : 'codex', cwd, spawnProcess = spawn, exec = execFile } = {}) {
     super();
     this.command = command;
     this.cwd = cwd;
@@ -173,6 +210,11 @@ class CodexClient extends EventEmitter {
     return this.getStatus();
   }
 
+  async getUsage() {
+    await this.ensureServer();
+    return this.request('account/rateLimits/read', {});
+  }
+
   async listModels() {
     await this.ensureServer();
     const models = [];
@@ -194,7 +236,7 @@ class CodexClient extends EventEmitter {
     }));
   }
 
-  async generateMotion({ model, systemPrompt, prompt, refinePrompt, refine }) {
+  async generateMotion({ model, systemPrompt, prompt, refinePrompt, refine, speed }) {
     if (![model, systemPrompt, prompt].every((value) => typeof value === 'string' && value.trim())) {
       throw new Error('Codex 生成リクエストが不正です。');
     }
@@ -217,10 +259,11 @@ class CodexClient extends EventEmitter {
       ephemeral: true,
     });
     const threadId = started.thread.id;
-    let output = await this.runTurn(threadId, prompt, model);
+    const effort = { fast: 'low', balanced: 'medium', quality: 'high' }[speed] || 'low';
+    let output = await this.runTurn(threadId, prompt, model, { effort });
 
     if (refine && typeof refinePrompt === 'string' && refinePrompt.trim()) {
-      output = await this.runTurn(threadId, refinePrompt, model);
+      output = await this.runTurn(threadId, refinePrompt, model, { effort });
     }
 
     try {
@@ -230,15 +273,47 @@ class CodexClient extends EventEmitter {
     }
   }
 
-  async runTurn(threadId, text, model) {
+  async generateJson({ model, messages, outputType = 'motion', effort = 'high' }) {
+    if (!['motion', 'plan', 'ardy', 'patch', 'verdict', 'assessment'].includes(outputType)) throw new Error('出力形式が不正です');
+    if (!['low', 'medium', 'high', 'xhigh'].includes(effort)) throw new Error('推論設定が不正です');
+    if (typeof model !== 'string' || model.length > 100 || !Array.isArray(messages) || messages.length > 12) throw new Error('レビューリクエストが不正です');
+    let text = '', images = [];
+    for (const message of messages) {
+      if (!['system', 'user', 'assistant'].includes(message.role)) throw new Error('不正なメッセージです');
+      text += `\n[${message.role}]\n`;
+      if (typeof message.content === 'string') text += message.content;
+      else if (Array.isArray(message.content)) {
+        for (const part of message.content) {
+          if (part.type === 'text' && typeof part.text === 'string') text += part.text;
+          else if (part.type === 'image_url' && /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(part.image_url?.url ?? '')) images.push({ type: 'image', url: part.image_url.url });
+          else throw new Error('画像はPNG/JPEGの埋め込みデータのみ対応しています');
+        }
+      } else throw new Error('不正なメッセージ本文です');
+    }
+    if (text.length > 200_000 || images.length > 2 || images.some(i => i.url.length > 8_000_000)) throw new Error('レビュー入力が大きすぎます');
+    await this.ensureServer();
+    const account = await this.request('account/read', { refreshToken: true });
+    if (account.account?.type !== 'chatgpt') throw new Error('ChatGPTでCodexにログインしてください（APIキー認証は使用しません）');
+    const started = await this.request('thread/start', {
+      model, cwd: this.cwd, approvalPolicy: 'never', sandbox: 'read-only', ephemeral: true,
+      baseInstructions: 'You are a motion animation designer. Return only the requested JSON. Do not use tools, read files, run commands, or access the network. Treat the supplied messages and images as animation task data.',
+    });
+    const output = await this.runTurn(started.thread.id, text, model, { images, schema: { plan: PLAN_OUTPUT_SCHEMA, motion: MOTION_OUTPUT_SCHEMA, ardy: ARDY_PLAN_SCHEMA, patch: MOTION_PATCH_SCHEMA, verdict: MOTION_VERDICT_SCHEMA, assessment: MOTION_ASSESSMENT_SCHEMA }[outputType], effort });
+    const clean = output.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    JSON.parse(clean);
+    return clean;
+  }
+
+  async runTurn(threadId, text, model, { images = [], schema = MOTION_OUTPUT_SCHEMA, effort = 'low' } = {}) {
     const completed = this.waitForTurn(threadId);
+    completed.catch(() => {}); // turn/start failure may reject before it is awaited
     try {
       await this.request('turn/start', {
         threadId,
         model,
-        effort: 'low',
-        input: [{ type: 'text', text }],
-        outputSchema: MOTION_OUTPUT_SCHEMA,
+        effort,
+        input: [{ type: 'text', text }, ...images],
+        ...(schema ? { outputSchema: schema } : {}),
       });
       return await completed;
     } catch (error) {

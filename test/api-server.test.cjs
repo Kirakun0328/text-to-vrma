@@ -37,6 +37,30 @@ const sampleSpec = {
   hips: [], expressions: {},
 };
 
+test('Codex HTTP generation needs no API key and fast defaults to one pass', async t => {
+  let options;
+  const api = await startServer({ apiKey:'', generateCodex:async(prompt,model,opts)=>{options=opts;assert.equal(model,'gpt-6-astra');return sampleSpec;} });
+  t.after(api.close);
+  const res=await fetch(`${api.url}/v1/motions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({engine:'codex',model:'gpt-6-astra',prompt:'nod',speed:'fast'})});
+  assert.equal(res.status,200);assert.equal(options.refine,false);assert.equal(options.speed,'fast');
+});
+
+test('HTTP fast respects explicit refinement and rejects unknown speeds', async t => {
+  let options;
+  const api=await startServer({apiKey:'test',generateMotion:async(_p,_k,_m,opts)=>{options=opts;return sampleSpec;}});t.after(api.close);
+  const send=body=>fetch(`${api.url}/v1/motions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  assert.equal((await send({prompt:'nod',speed:'fast',refine:true})).status,200);
+  assert.equal(options.refine,true);
+  assert.equal((await send({prompt:'nod',speed:'unlimited'})).status,400);
+});
+
+test('ARDY defaults to Codex planning without forwarding an OpenAI key', async t => {
+  let opts;
+  const api=await startServer({apiKey:'test',generateArdy:async(_p,options)=>{opts=options;return sampleSpec;}});t.after(api.close);
+  const res=await fetch(`${api.url}/v1/motions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({engine:'ardy',prompt:'walk'})});
+  assert.equal(res.status,200);assert.equal(opts.apiKey,'');assert.equal(typeof opts.plannerRequest,'function');
+});
+
 test('healthはAPI設定状態を返す', async (t) => {
   const api = await startServer({ apiKey: '' });
   t.after(api.close);
@@ -46,7 +70,7 @@ test('healthはAPI設定状態を返す', async (t) => {
   assert.equal(body.status, 'ok');
   assert.equal(body.service, 'text-to-vrma');
   assert.equal(body.generationConfigured, false);
-  assert.deepEqual(body.engines, ['openai', 'claude', 'ardy']);
+  assert.deepEqual(body.engines, ['ardy', 'codex', 'openai', 'claude']);
   assert.deepEqual(body.configured, { openai: false, claude: false });
 });
 
@@ -314,7 +338,7 @@ test('ARDYエンジンへ送るリクエストと後処理', async () => {
         ok: true,
         json: async () => ({
           name: 'walk', duration: 2,
-          tracks: { head: [{ t: 0, r: [0, 0, 0] }, { t: 2, r: [0, 0, 0] }] },
+          tracks: { head: [{ t: 0, r: [0, 0, 0] }, { t: 2, r: [15, 0, 0] }] },
           hips: [{ t: 0, p: [0, 0, 0] }, { t: 2, p: [0, 0, 3] }], // 大きく前進する
         }),
       };
@@ -324,7 +348,10 @@ test('ARDYエンジンへ送るリクエストと後処理', async () => {
   assert.equal(sent.url, 'http://127.0.0.1:9999/generate'); // 末尾スラッシュを正規化する
   assert.deepEqual(sent.body, { text: '前に歩く' }); // キーが無いので分割せず原文を渡す
   assert.equal(spec.loop, false); // 移動が大きいのでループ向きではない
-  assert.ok(spec.duration > 2); // 非ループは直立姿勢へ戻す分だけ伸びる
+  assert.equal(spec.duration, 2); // 終了姿勢と接地を壊す直立補間を追加しない
+  assert.equal(spec.tracks.head.length,2);
+  assert.deepEqual(spec.tracks.head.at(-1).r,[15,0,0]);
+  assert.equal(spec.hips.length,2);
   assert.ok(spec.expressions); // ARDYは表情を作らないので補われる
 });
 

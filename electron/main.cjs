@@ -34,7 +34,9 @@ function registerCodexIpc() {
   codexClient.on('server-exit', broadcastCodexStatus);
 
   ipcMain.handle('codex:get-status', () => codexClient.getStatus());
+  ipcMain.handle('codex:get-usage', () => codexClient.getUsage());
   ipcMain.handle('codex:list-models', () => codexClient.listModels());
+  ipcMain.handle('codex:generate-json', (_event, request) => codexClient.generateJson(request));
   ipcMain.handle('codex:generate-motion', async (_event, request) => {
     try {
       return await codexClient.generateMotion(request);

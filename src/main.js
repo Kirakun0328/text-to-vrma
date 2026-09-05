@@ -1,23 +1,182 @@
+import { tr } from './i18n.js';
 // main.js — UI と各モジュールの結線
 import pkg from '../package.json';
 import { t, locale, setLocale, applyStaticI18n } from './i18n.js';
 import { Viewer } from './viewer.js';
+import { generateReviewedMotion } from './motionReview.js';
+import { inspectMotion, comparisonImages } from './reviewCapture.js';
+import { directlyReviewMotion } from './directMotionReview.js';
+import { generateArdyCandidates } from './ardyCandidates.js';
+import { renderCandidatePanel } from './candidatePanel.js';
+import { softenMotion } from './smoothMotion.js';
+import { renderMotionChecks, renderGenerationRoute, renderPlaybackStatus } from './motionCheckPanel.js';
+import { installCodexWebBridge } from './codexWebBridge.js';
+import { renderUsage } from './codexUsage.js';
+import { refineArdyMotion, claudeReviewMessages } from './ardyReview.js';
 import { buildVRMA } from './vrmaBuilder.js';
 import { idleSpec } from './idleMotion.js';
 import { autoExpressions } from './autoExpressions.js';
-import { appendNeutralEnding, rescaleSpec, isLoopFriendly } from './specMerge.js';
+import { rescaleSpec, isLoopFriendly } from './specMerge.js';
 import { exportGIF, exportWebM, downloadBlob } from './recorder.js';
 import {
   generateMotionWithOpenAI,
   generateMotionWithClaude,
   generateMotionWithCodex,
   planArdySegments,
+  callClaude,
+  callOpenAI,
   setApiBase,
   DEFAULT_OPENAI_MODEL,
   DEFAULT_CLAUDE_MODEL,
 } from './llm.js';
 
 const $ = (id) => document.getElementById(id);
+installCodexWebBridge();
+let correctionProgress=0;
+function showCorrectionProgress(message,details) {
+  if(!details?.stage) return;
+  const stages={capture:'動きを撮影・確認しています',assessment:'修正が必要な箇所を確認しています',design:'AIが動きの直し方を考えています',apply:'修正した動きを撮影しています',evaluate:'修正前後を比べています',finish:'比較結果を準備しています'};
+  $('reviewProgress').classList.remove('hidden');
+  $('reviewProgressStage').textContent=tr(stages[details.stage]||'修正処理中…');
+  $('reviewProgressSection').textContent=[details.total ? tr('全{total}区間のうち {n}区間目（{start}〜{end}秒）',{total:details.total,n:details.section,start:Number(details.start.toFixed(1)),end:Number(details.end.toFixed(1))}) : '',details.round ? tr('{n}回目の見直し',{n:details.round}) : ''].filter(Boolean).join(' · ');
+  const stageFraction={capture:0,assessment:.1,design:.2,apply:.6,evaluate:.8};
+  const rounds=details.rounds||1;
+  const sectionFraction=((details.round||1)-1+(stageFraction[details.stage]??0))/rounds;
+  const percent=details.stage==='finish'?95:Math.floor(95*((details.section||1)-1+sectionFraction)/(details.total||1));
+  correctionProgress=Math.max(correctionProgress,percent);
+  $('reviewProgressBar').value=correctionProgress;
+  $('reviewProgressPercent').textContent=tr('全体の進捗（目安）：{percent}%',{percent:correctionProgress});
+}
+let latestReview = null;
+let latestCandidates=null;
+function showCandidates(report) {
+  latestCandidates=report;window.__lastCandidates=report;
+  $('candidateCompareBtn').classList.remove('hidden');
+  renderCandidatePanel(report,{
+    preview:async index=>{
+      if(generateBtn.disabled)return;
+      generateBtn.disabled=true;
+      try {const spec=report.entries[index].spec;await viewer.playVRMA(buildVRMA(spec),spec.loop);$('candidateResults').close();}
+      catch(e){setStatus(e.message,'err');}finally{generateBtn.disabled=false;}
+    },
+    adopt:async index=>{
+      if(generateBtn.disabled)return;
+      generateBtn.disabled=true;
+      try {
+        const spec=report.entries[index].spec,buffer=await playSpec(spec);
+        window.__lastSpec=spec;report.selected=index;
+        await addHistory(spec,buffer,spec.originalText||spec.name);
+        latestReview=null;window.__lastReview=null;$('reviewCompareBtn').classList.add('hidden');
+        showCandidates(report);$('candidateResults').close();setStatus(tr('候補 {n}を採用しました。',{n:index+1}),'ok');
+      }catch(e){setStatus(e.message,'err');}finally{generateBtn.disabled=false;}
+    }
+  });
+}
+$('candidateCompareBtn').addEventListener('click',()=>{if(!generateBtn.disabled&&latestCandidates)$('candidateResults').showModal();});
+$('candidateCloseBtn').addEventListener('click',()=>$('candidateResults').close());
+$('visualReviewCheck').checked = localStorage.getItem('visual-review') === '1';
+$('visualReviewCheck').addEventListener('change', () => {
+  localStorage.setItem('visual-review', $('visualReviewCheck').checked ? '1' : '0');
+  renderAuthMode();
+});
+function showReview(result) {
+  latestReview=result; window.__lastReview=result;
+  $('reviewCompareBtn').classList.remove('hidden');
+  $('reviewCompareBtn').textContent=tr('修正前後を比較');
+  $('reviewCandidateBtn').disabled=$('reviewAdoptBtn').disabled=!result.candidate;
+  const selected=result.attempts?.findLast(a=>a.accepted)??result.attempts?.at(-1);
+  $('reviewOutcome').textContent=[result.manual ? (result.candidate ? tr('修正版を用意しました。比較して「この修正版を採用」で確定してください。') : tr('動きを変更する補正は得られませんでした。')) : result.accepted ? tr('修正版を採用しました。') : tr('初稿を採用しました。'),
+    tr('AIの比較評価：{result}',{result:result.accepted?tr('改善あり'):tr('改善を確認できませんでした。')}),selected?.rejection||selected?.verdict?.reason||'',result.error||''].filter(Boolean).join('\n');
+  $('reviewAssessment').classList.toggle('hidden',!result.assessment);
+  $('reviewAssessment').textContent=result.assessment ? [tr(result.assessment.needed?'修正を推奨':'修正不要'),result.assessment.reason,...result.assessment.issues].join('\n') : '';
+  const plan=result.plan;
+  $('reviewRawPlan').textContent=JSON.stringify(result.attempts?{plan,attempts:result.attempts}:plan,null,2);
+  $('reviewPlan').textContent=[tr('指示：{text}',{text:plan.intent||''}),tr('長さ：{seconds}秒',{seconds:Number(plan.duration.toFixed(2))}),
+    ...(result.mode==='direct' ? result.attempts.map((a,i)=>[
+      tr('試行{n}：{summary}',{n:i+1,summary:a.patch.summary}),
+      ...a.patch.issues.map(issue=>`${issue.start.toFixed(2)}–${issue.end.toFixed(2)} s · ${issue.bone}: ${issue.problem} → ${issue.change}`),
+      tr('最大補正：{degrees}度／腰移動 {cm}cm',{degrees:a.changes.maxRotationDeg.toFixed(1),cm:(a.changes.maxRootMeters*100).toFixed(1)}),
+      tr('評価：{reason}',{reason:a.rejection||a.verdict?.reason||tr('未測定')}),
+      tr('未解決：{issues}',{issues:a.verdict?.remainingIssues?.join(' / ')||tr('指摘なし')})].join('\n')) : Object.hasOwn(plan,'correction') ? [tr('ARDYへの修正指示です。支持脚・到達目標は未指定のため未測定です。')] : plan.phases.map(p=>`${p.start}–${p.end} s: ${[p.action,p.anticipation,p.weightShift,p.gaze,p.timing].filter(Boolean).join(' / ')}`))].join('\n\n');
+  const value=(n,unit)=>Number.isFinite(n)?`${(n*100).toFixed(2)} ${unit}`:tr('未測定');
+  const metrics=m=>!m?tr('未測定'):[
+    tr('支持脚の滑り：{value}',{value:value(m.plannedContactSlideMps,'cm/s')}),
+    tr('足首の沈み込み（近似）：{value}cm',{value:Number.isFinite(m.maxFootDropBelowRestM)?(m.maxFootDropBelowRestM*100).toFixed(2):tr('未測定')}),
+    tr('到達誤差：{value}',{value:value(m.meanTargetErrorM,'cm')}),
+    tr('推定接地中の滑り：{value}',{value:value(m.estimatedContactSlideMps,'cm/s')})].join('\n');
+  $('reviewMetrics').textContent=[tr('修正前'),metrics(result.before.metrics),'',tr('修正後'),metrics(result.after?.metrics),'',result.model||'',
+    result.timing?tr('処理時間：{seconds}秒',{seconds:result.timing.totalSeconds.toFixed(1)}):'',tr('接地・床貫通は近似値です。AIの評価とあわせて再生して確認してください。')].join('\n');
+  $('reviewImages').replaceChildren();
+  for(const [label,data] of [[tr('修正前'),result.before],[tr('修正後'),result.after]]) for(const [i,url] of (data?.images??[]).entries()) {
+    const image=document.createElement('img');image.src=url;image.alt=`${label} ${tr(i?'側面':'正面')}`;image.style.width='100%';
+    const caption=document.createElement('p');caption.textContent=image.alt;
+    const figure=document.createElement('figure');figure.append(caption,image);$('reviewImages').append(figure);
+  }
+}
+$('reviewCompareBtn').addEventListener('click', () => {
+  if (!generateBtn.disabled) $('reviewResults').showModal();
+});
+$('reviewCloseBtn').addEventListener('click', () => $('reviewResults').close());
+for (const [id, key] of [['reviewDraftBtn', 'draft'], ['reviewCandidateBtn', 'candidate']]) {
+  $(id).addEventListener('click', async () => {
+    if (!latestReview?.[key] || generateBtn.disabled) return;
+    try {
+      await viewer.playVRMA(buildVRMA(latestReview[key]),latestReview[key].loop);
+      $('reviewResults').close();
+      $('reviewCompareBtn').textContent = tr('{version}を再生中 · 比較を開く',{version:tr(key==='draft'?'修正前':'修正後')});
+    } catch (e) { setStatus(e.message, 'err'); }
+  });
+}
+$('reviewDownloadBtn').addEventListener('click', () => {
+  if (latestReview) downloadBlob(new Blob([JSON.stringify(latestReview, null, 2)], { type: 'application/json' }), 'motion-review.json');
+});
+document.querySelector('.ai-settings-toggle').parentElement.addEventListener('toggle', event => {
+  document.querySelector('.toggle-hint').textContent = event.currentTarget.open ? tr('設定を閉じる') : tr('設定を開く');
+});
+$('reviewAdoptBtn').addEventListener('click', async () => {
+  if (!latestReview?.candidate || generateBtn.disabled) return;
+  generateBtn.disabled = true;
+  try {
+    const spec=latestReview.candidate, buffer=await playSpec(spec);
+    window.__lastSpec=spec;
+    await addHistory(spec,buffer,latestReview.plan.intent);
+    $('reviewResults').close();
+    setStatus(tr('修正版を採用しました。書き出しにもこの動きを使います。'),'ok');
+  } catch(e) {setStatus(e.message,'err');}
+  finally {generateBtn.disabled=false;}
+});
+$('manualReviewBtn').addEventListener('click', async () => {
+  if (generateBtn.disabled || !lastVRMA?.spec || !viewer.vrm) return;
+  const original=lastVRMA.spec;
+  const mode=authModeSelect.value, provider=mode==='ardy' ? $('ardyPlanner').value : mode==='api-key' ? 'openai' : mode;
+  const key=provider==='claude' ? claudeApiKeyInput.value.trim() : apiKeyInput.value.trim();
+  if(provider==='none') {setStatus(tr('「モーション生成に使うAI」で修正に使うAIを選んでください。'),'err');return;}
+  if(provider==='codex' ? codexStatus?.account?.type!=='chatgpt' : !key) {setStatus(provider==='codex'?tr('Codexにログインしてください。'):tr('選択したAPIのキーを設定してください。'),'err');return;}
+  const model=provider==='codex'?codexModelSelect.value:provider==='claude'?claudeModelSelect.value:apiCustomModelInput.value.trim()||apiModelSelect.value;
+  const request=provider==='codex' ? (messages,_key,model,_delta,config)=>codexBridge.generateJson({messages,model,...config}) : provider==='claude' ? (messages,...args)=>callClaude(claudeReviewMessages(messages),...args) : callOpenAI;
+  if(provider==='openai') setApiBase(apiBaseUrlInput.value);
+  const locked=[...document.querySelectorAll('section.card,#playbackBar')];
+  generateBtn.disabled=true; $('manualReviewBtn').disabled=true;
+  correctionProgress=0;
+  locked.forEach(el=>el.inert=true);
+  try {
+    const result=await directlyReviewMotion(original.originalText||original.name||textInput.value,original,{
+      request,apiKey:key,model,force:true,visual:$('visualReviewCheck').checked,speed:$('reviewSpeed').value,
+      skeleton:viewer.reviewSkeleton,inspect:(s,p,o)=>inspectMotion(viewer,s,p,o),compareImages:comparisonImages,
+      onProgress:(message,details)=>{setStatus(message);showCorrectionProgress(message,details);}
+    });
+    showReview(result);
+    $('reviewResults').showModal();
+    setStatus(result.candidate?tr('修正版を比較画面で確認してください。'):tr('補正が得られませんでした。比較画面に理由を表示しています。'));
+  } catch(e) {setStatus(tr('修正に失敗しました。元の動きは保持しています。{error}',{error:e.message}),'err');}
+  finally {
+    $('reviewProgress').classList.add('hidden');
+    generateBtn.disabled=false; $('manualReviewBtn').disabled=false;
+    $('manualReviewBtn').textContent=tr('この動きを修正');
+    locked.forEach(el=>el.inert=false);
+    void refreshCodexUsage();
+  }
+});
 const statusEl = $('status');
 const textInput = $('textInput');
 const generateBtn = $('generateBtn');
@@ -29,6 +188,8 @@ const exprCheck = $('exprCheck');
 // .vrma保存・録画ボタンの有効/無効をまとめて切り替える。
 // 初めてモーションが用意できた時に「書き出し・共有」セクションを出現させる
 function setExportEnabled(on) {
+  $('manualReviewBtn').classList.toggle('hidden', !on);
+  $('manualReviewBtn').disabled = !on;
   exportBtn.disabled = !on;
   gifBtn.disabled = !on;
   webmBtn.disabled = !on;
@@ -48,6 +209,8 @@ const codexAuthState = $('codexAuthState');
 const codexLoginBtn = $('codexLoginBtn');
 const codexLogoutBtn = $('codexLogoutBtn');
 const refineCheck = $('refineCheck');
+refineCheck.addEventListener('change', renderAuthMode);
+$('reviewSpeed').addEventListener('change', renderAuthMode);
 const ardySettings = $('ardySettings');
 const ardyState = $('ardyState');
 const ardyUrlInput = $('ardyUrl');
@@ -68,6 +231,14 @@ const langSelect = $('langSelect');
 langSelect.value = locale;
 langSelect.addEventListener('change', () => {
   setLocale(langSelect.value); // 押した瞬間に画面全体へ即時反映 (リロードなし)
+  if (statusRenderer) setStatus(statusRenderer, statusKind);
+  renderMotionChecks(window.__motionChecks);
+  renderGenerationRoute(window.__motionPlanning);
+  renderAuthMode();
+  document.querySelector('.toggle-hint').textContent=tr(document.querySelector('.ai-settings-toggle').parentElement.open?'設定を閉じる':'設定を開く');
+  if(latestReview) showReview(latestReview);
+  if(latestCandidates) showCandidates(latestCandidates);
+  void refreshCodexUsage();
   updateWaypointUI();
 });
 applyStaticI18n();
@@ -118,6 +289,12 @@ function maskEmail(email) {
 
 const apiSettingsHome = $('apiSettingsHome');
 const ardyGptSlot = $('ardyGptSlot');
+$('ardyPlanner').value = localStorage.getItem('ardy-planner') || 'none';
+$('ardyPlanner').addEventListener('change', () => {
+  localStorage.setItem('ardy-planner', $('ardyPlanner').value);
+  renderAuthMode();
+  if ($('ardyPlanner').value === 'codex') refreshCodexStatus();
+});
 function renderAuthMode() {
   const mode = authModeSelect.value;
   const codexMode = mode === 'codex' && Boolean(codexBridge);
@@ -127,15 +304,29 @@ function renderAuthMode() {
   // ARDYモードでは同じ要素をARDYパネル内の「GPT (頭)」欄へ移動して見せる。
   // 復帰先は専用スロットに固定する。以前の #panel.insertBefore() は、#panel の
   // 子ではない codexSettings を referenceNode にしており NotFoundError になっていた。
-  const apiSettingsSlot = ardyMode ? ardyGptSlot : apiSettingsHome;
-  if (apiSettings.parentElement !== apiSettingsSlot) apiSettingsSlot.append(apiSettings);
-  apiSettings.classList.toggle('hidden', codexMode || claudeMode);
-  claudeSettings.classList.toggle('hidden', !claudeMode);
-  codexSettings.classList.toggle('hidden', !codexMode);
+  const planner = $('ardyPlanner').value;
+  $('ardyLocalOnlyNote').classList.toggle('hidden',planner!=='none');
+  for (const [element, home] of [[apiSettings, apiSettingsHome], [codexSettings, $('codexSettingsHome')], [claudeSettings, $('claudeSettingsHome')]]) {
+    const slot = ardyMode ? ardyGptSlot : home;
+    if (element.parentElement !== slot) slot.append(element);
+  }
+  apiSettings.classList.toggle('hidden', ardyMode ? planner !== 'openai' : codexMode || claudeMode);
+  claudeSettings.classList.toggle('hidden', ardyMode ? planner !== 'claude' : !claudeMode);
+  codexSettings.classList.toggle('hidden', ardyMode ? planner !== 'codex' : !codexMode);
   ardySettings.classList.toggle('hidden', !ardyMode);
+  $('ardySmoothRow').classList.toggle('hidden',!ardyMode);
   // 経由地モード (セクション3) はARDYモード専用なので、それ以外では隠す
   $('waypointRow').classList.toggle('hidden', !ardyMode);
-  refineCheck.parentElement.classList.toggle('hidden', ardyMode); // 自己修正はLLMキーフレーム専用
+  refineCheck.parentElement.classList.remove('hidden');
+  $('visualReviewCheck').disabled = ardyMode && planner === 'none';
+  refineCheck.disabled = ardyMode && planner === 'none';
+  $('reviewImageOption').classList.toggle('hidden', refineCheck.disabled);
+  const visualEnabled = !$('visualReviewCheck').disabled && $('visualReviewCheck').checked;
+  $('visualReviewNotice').classList.toggle('hidden', !visualEnabled);
+  $('visualReviewNotice').textContent = tr('生成した動きの撮影画像を{provider}に送って確認します。',{provider:(ardyMode ? planner : mode)==='claude'?'Anthropic':'OpenAI'});
+  $('reviewSpeedRow').classList.toggle('hidden', refineCheck.disabled);
+  $('reviewModeNote').classList.toggle('hidden', !ardyMode || $('reviewSpeedRow').classList.contains('hidden'));
+  $('reviewModeNote').textContent = { balanced: tr('AI計画は短時間。修正時は直接調整し、1回比較します。'), fast: tr('待ち時間を優先します。修正時はAIが指示を見直してARDYで再生成します。'), quality: tr('AIが生成前の動作計画をじっくり考えます。修正時も詳しく見直します（最大2回）。') }[$('reviewSpeed').value];
   if (ardyMode) checkArdyHealth();
   else cancelArdyHealthCheck();
 }
@@ -308,23 +499,43 @@ function startArdyProgressBar(url) {
   };
 }
 
-async function generateMotionWithArdy(text, { onProgress } = {}) {
+async function generateMotionWithArdy(text, { onProgress, refine = false } = {}) {
   const url = ardyUrlInput.value.trim().replace(/\/$/, '');
 
   // GPT (頭) がエンジン振り分けと生成計画を担当し、ARDY (体) が動きを作る。
   // キーがない・失敗した場合はエンジン内蔵のローカル翻訳にフォールバック
   let plan = null;
+  let planCompletedAt = null;
+  let plannerNote = '';
   const apiKey = (apiKeyInput.value || localStorage.getItem('openai-api-key') || '').trim();
-  const gptModel = localStorage.getItem('openai-model') || DEFAULT_OPENAI_MODEL;
-  if (apiKey) {
+  const provider = $('ardyPlanner').value;
+  const gptModel = provider === 'codex' ? codexModelSelect.value : provider === 'claude' ? claudeModelSelect.value : apiCustomModelInput.value.trim() || apiModelSelect.value;
+  const planningKey = provider === 'claude' ? claudeApiKeyInput.value.trim() : apiKey;
+  const visual = refine && !$('visualReviewCheck').disabled && $('visualReviewCheck').checked;
+  const correcting = provider !== 'none' && (refine || visual);
+  const request = provider === 'codex'
+    ? (messages, _key, model, _delta, config) => codexBridge.generateJson({ messages, model, ...config })
+    : provider === 'claude' ? (messages, ...args) => callClaude(claudeReviewMessages(messages), ...args) : callOpenAI;
+  if (provider === 'openai') setApiBase(apiBaseUrlInput.value);
+  if (provider !== 'none') {
     try {
+      if (provider === 'codex' && (!codexBridge || codexStatus?.account?.type !== 'chatgpt')) throw new Error('Codexにログインしてください');
+      if (provider !== 'codex' && !planningKey) throw new Error('選択したAPIのキーが未設定です');
       onProgress?.(t('ardy.analyzing'));
-      plan = await planArdySegments(text, apiKey, gptModel, {
-        waypointCount: waypoints.length,
-        pathMeters: waypoints.length ? waypointPathSeconds(waypoints) - 2 : 0,
+      plan = await planArdySegments(text, planningKey, gptModel, {
+        availableExpressions: viewer.reviewSkeleton?.availableExpressions,
+        waypointCount: waypointCheck.checked ? waypoints.length : 0,
+        pathMeters: waypointCheck.checked && waypoints.length ? waypointPathSeconds(waypoints) - 2 : 0,
+        verify: false,
+        effort: $('reviewSpeed').value === 'quality' ? 'high' : 'low',
+        ...(provider === 'codex' ? { request: (messages, _key, model, _delta, config) => codexBridge.generateJson({ messages, model, ...config }) } :
+          provider === 'claude' ? { request: callClaude } : {}),
       });
       console.log('[ARDY] GPT plan:', plan);
+      planCompletedAt = new Date().toISOString();
     } catch (e) {
+      if (correcting || e.code === 'ARDY_INVALID_PLAN') throw e;
+      plannerNote = `動作計画を利用できないためローカル翻訳で生成: ${e.message}`;
       console.warn('[ARDY] GPT計画に失敗、ローカル翻訳にフォールバック:', e);
     }
   }
@@ -351,7 +562,7 @@ async function generateMotionWithArdy(text, { onProgress } = {}) {
     return res.json();
   }
 
-  // モーション生成はすべてARDY (GPTは計画のみ。キーフレーム生成は混ぜない)
+  // Both passes are generated by ARDY; AI revises the generation instructions.
   onProgress?.(t('ardy.generating'));
   const body = plan?.segments?.length
     ? { segments: plan.segments.map((s) => ({ text: s.text, duration: s.duration })) }
@@ -373,20 +584,64 @@ async function generateMotionWithArdy(text, { onProgress } = {}) {
         : body.segments.map((s) => ({ ...s, duration: manualDur / body.segments.length }));
     }
   }
-  const spec = await ardyGenerate(body);
+  function finalize(spec, expression = plan?.expression, expressionSegments = plan?.segments) {
+  spec.planning={used:Boolean(plan),provider:plan?provider:'none',model:plan?gptModel:null,completedAt:planCompletedAt};
+  if (plannerNote) spec.plannerNote = plannerNote;
   if (plan) spec.originalText = text;
+  if (plan) spec.motionPlan = {segments:plan.segments,checks:plan.checks};
 
   // 自動判定時のループ既定値 (共通のon/off上書きは生成ハンドラ側で行う)
-  spec.loop = isLoopFriendly(spec);
-  // 非ループは最後に自然な直立姿勢へ戻して終わる (中途半端なポーズで固まらない)
-  if (!spec.loop) appendNeutralEnding(spec);
-  // 秒数を固定する場合のみ、終わり処理を含めた全体を指定秒数ちょうどへ補正する
+  spec.loop = isLoopFriendly(spec, text);
+  if(loopSelect.value==='on')spec.loop=true;
+  if(loopSelect.value==='off')spec.loop=false;
+  // Preserve ARDY's ending pose. Forcing every leg joint to zero slid planted feet inward.
+  // 秒数を固定する場合のみ全体を指定秒数へ補正する
   // (「自動補正」ONのときは固定せず、動きが自然に収まる長さのままにする)
   if (forceDur) rescaleSpec(spec, manualDur);
   // ARDYは表情を生成しないので自動付与する (GPTの感情判定があれば優先、
   // なければ原文の感情語からのキーワードマッチ)
-  spec.expressions = autoExpressions(spec.originalText ?? text, spec.duration, plan?.expression);
-  return spec;
+  spec.expressions = autoExpressions(spec.originalText ?? text, spec.duration, expression, expressionSegments);
+  return $('ardySmoothCheck').checked ? softenMotion(spec) : spec;
+  }
+  let spec;
+  if($('ardyCandidateCount').value==='3') {
+    const report=await generateArdyCandidates({count:3,
+      generate:async seed=>finalize(await ardyGenerate({...body,seed})),
+      inspect:motion=>inspectMotion(viewer,motion,{duration:motion.duration,phases:[{start:0,end:motion.duration,support:'none',targets:[]}]},{captureImages:false}),
+      onProgress:(n,total,stage)=>{
+        const message=tr(stage==='generate'?'候補 {n}/{total}をARDYで生成中…':'候補 {n}/{total}の足滑りを測定中…',{n,total});
+        onProgress?.(message);
+      }
+    });
+    for(const [index,entry] of report.entries.entries()) entry.spec.candidateInfo={index,seed:entry.seed,count:report.entries.length};
+    showCandidates(report);spec=report.entries[report.selected].spec;
+    $('reviewProgress').classList.add('hidden');
+  } else spec = finalize(await ardyGenerate(body));
+  if (!correcting) return spec;
+  let result;
+  const reviewer = $('reviewSpeed').value === 'fast' ? refineArdyMotion : directlyReviewMotion;
+  try { result = await reviewer(text, spec, {
+    request, apiKey: planningKey, model: gptModel, visual, skeleton: viewer.reviewSkeleton,
+    speed: $('reviewSpeed').value, onProgress, onDraft: motion => playSpec(motion),
+    plannerOptions: { waypointCount: waypointsActive ? waypoints.length : 0, pathMeters: waypointsActive ? waypointPathSeconds(waypoints) - 2 : 0 },
+    inspect: (motion, reviewPlan, captureOptions) => inspectMotion(viewer, motion, reviewPlan, captureOptions),
+    compareImages: comparisonImages,
+    regenerate: async correction => {
+      const sum = correction.segments.reduce((total, segment) => total + segment.duration, 0);
+      const revisedBody = { ...body, duration: spec.duration, segments: correction.segments.map(segment => ({ text: segment.text, duration: segment.duration / sum * spec.duration })) };
+      delete revisedBody.text;
+      const revised = finalize(await ardyGenerate(revisedBody), correction.expression, correction.segments);
+      rescaleSpec(revised, spec.duration);
+      return revised;
+    },
+  });
+  } catch (error) {
+    spec.plannerNote = `修正を実行できなかったため初稿を採用: ${error.message}`;
+    return spec;
+  }
+  showReview(result);
+  if (result.error) result.spec.plannerNote = `${result.accepted ? '追加の修正を完了できなかったため、直前に採用した修正版を保持' : '修正に失敗したため初稿を採用'}: ${result.error}`;
+  return result.spec;
 }
 
 // Electron デスクトップ版ではエンジンをアプリから起動できる
@@ -435,6 +690,31 @@ async function loadCodexModels() {
   codexModelSelect.disabled = models.length === 0;
 }
 
+let usageLoading = false;
+let usageAccountEpoch = 0;
+async function refreshCodexUsage() {
+  if(authModeSelect.value!=='codex'&&!(authModeSelect.value==='ardy'&&$('ardyPlanner').value==='codex'))return;
+  if (usageLoading || !codexBridge?.getUsage || codexStatus?.account?.type !== 'chatgpt') return;
+  usageLoading = true;
+  const epoch = usageAccountEpoch;
+  $('codexUsageRefresh').disabled = true;
+  try {
+    const data = await codexBridge.getUsage();
+    if (epoch !== usageAccountEpoch) return;
+    renderUsage($('codexUsageRows'), data);
+    $('codexUsageUpdated').textContent = tr('更新：{time}',{time:new Date().toLocaleTimeString()});
+  } catch {
+    if (epoch === usageAccountEpoch) $('codexUsageUpdated').textContent = tr('最新の使用量を取得できませんでした。表示済みの数値は前回取得時のものです。「更新」で再試行できます。');
+  } finally {
+    usageLoading = false;
+    $('codexUsageRefresh').disabled = codexStatus?.account?.type !== 'chatgpt';
+  }
+}
+$('codexUsageRefresh').addEventListener('click', refreshCodexUsage);
+setInterval(() => {
+  if (!document.hidden && $('codexUsage').getClientRects().length) refreshCodexUsage();
+}, 60_000);
+
 async function refreshCodexStatus(providedStatus) {
   if (!codexBridge) return;
   try {
@@ -448,6 +728,7 @@ async function refreshCodexStatus(providedStatus) {
         t('codex.loggedIn', { id: identity, plan: account.planType, ver: codexStatus.version }),
         'ok'
       );
+      void refreshCodexUsage();
       await loadCodexModels();
     } else {
       setCodexAuthState(t('codex.loggedOut', { ver: codexStatus.version }));
@@ -461,17 +742,24 @@ async function refreshCodexStatus(providedStatus) {
     codexLoginBtn.disabled = true;
     codexLogoutBtn.disabled = true;
   }
+  if (codexStatus?.account?.type !== 'chatgpt') {
+    usageAccountEpoch++;
+    $('codexUsageRows').replaceChildren();
+    $('codexUsageUpdated').textContent = tr('ChatGPTでログインすると表示します。');
+    $('codexUsageRefresh').disabled = true;
+  }
 }
 
 async function initializeAuth() {
-  const savedMode = localStorage.getItem('openai-auth-mode');
+  const savedMode = localStorage.getItem('engine-order-v2') ? localStorage.getItem('openai-auth-mode') : 'ardy';
+  localStorage.setItem('engine-order-v2', '1');
   if (!codexBridge) {
     authModeSelect.querySelector('option[value="codex"]')?.remove();
-    authModeSelect.value = ['ardy', 'claude'].includes(savedMode) ? savedMode : 'api-key';
+    authModeSelect.value = ['ardy', 'claude', 'api-key'].includes(savedMode) ? savedMode : 'ardy';
     renderAuthMode();
     return;
   }
-  authModeSelect.value = ['codex', 'ardy', 'claude'].includes(savedMode) ? savedMode : 'api-key';
+  authModeSelect.value = ['codex', 'ardy', 'claude', 'api-key'].includes(savedMode) ? savedMode : 'ardy';
   renderAuthMode();
   await refreshCodexStatus();
 }
@@ -484,7 +772,15 @@ function buildExportVRMA(spec) {
   return buildVRMA(motionOnly);
 }
 
+let statusRenderer = null;
+let statusKind = '';
 function setStatus(msg, kind = '') {
+  statusRenderer = typeof msg === 'function' ? msg : null;
+  statusKind = kind;
+  if (statusRenderer) msg = statusRenderer();
+  const playback=Boolean(msg?.playback);
+  $('playbackCard').classList.toggle('hidden',!playback);
+  if(playback){renderPlaybackStatus(msg);statusEl.textContent='';statusEl.className='hidden';return;}
   statusEl.textContent = msg || '';
   statusEl.className = kind;
   statusEl.classList.toggle('hidden', !msg); // 空メッセージのときは枠ごと隠す
@@ -563,12 +859,26 @@ async function init() {
 async function playSpec(spec, { silent = false, seek = 0 } = {}) {
   const buffer = buildVRMA(spec);
   await viewer.playVRMA(buffer, spec.loop ?? true, seek);
+  window.__motionPlanning=silent?null:spec.planning;
+  renderGenerationRoute(window.__motionPlanning);
+  window.__motionChecks=null;
+  renderMotionChecks(null);
+  if(!silent){
+    if(spec.motionPlan?.checks?.length){
+      try{
+        const view=await inspectMotion(viewer,spec,{phases:[{start:0,end:spec.duration,support:'none',targets:[]}]},{captureImages:false});
+        window.__motionChecks=view.compliance;
+      }catch(error){console.warn('Motion measurements unavailable:',error);}
+    }
+    renderMotionChecks(window.__motionChecks);
+  }
   lastVRMA = { spec, name: spec.name || 'motion' };
   setExportEnabled(true);
+  if (silent) $('manualReviewBtn').classList.add('hidden');
   showPlaybackBar(!silent); // 待機モーション (silent) 以外は再生バーを表示
   if (!silent) {
     setStatus(
-      t('playing', { name: spec.name, dur: spec.duration.toFixed(1), loop: spec.loop ? t('loop.yes') : t('loop.no') }),
+      () => ({playback:spec}),
       'ok'
     );
   }
@@ -588,11 +898,11 @@ function downloadVRMA(item) {
 
 async function playHistoryItem(item) {
   try {
-    await viewer.playVRMA(item.buffer.slice(0), item.loop);
+    await playSpec(item.spec);
     lastVRMA = { spec: item.spec, name: item.name };
     setExportEnabled(true);
     showPlaybackBar(true);
-    setStatus(t('playing.hist', { name: item.name, text: item.text }), 'ok');
+    setStatus(() => ({playback:item.spec,text:item.text}), 'ok');
   } catch (e) {
     console.error(e);
     setStatus(t('error', { msg: e.message }), 'err');
@@ -706,12 +1016,20 @@ generateBtn.addEventListener('click', async () => {
     return;
   }
   generateBtn.disabled = true;
+  // Keep the avatar, timing and playback stable while capture/review is in flight.
+  latestReview = null;
+  latestCandidates=null;window.__lastCandidates=null;$('candidateCompareBtn').classList.add('hidden');
+  correctionProgress=0;
+  window.__lastReview = null;
+  $('reviewCompareBtn').classList.add('hidden');
+  const lockedElements = [...document.querySelectorAll('section.card, #playbackBar')];
+  for (const element of lockedElements) element.inert = true;
   waypointClearBtn.disabled = true;
   try {
     localStorage.setItem('openai-auth-mode', authMode);
     const options = {
       refine: refineCheck.checked,
-      onProgress: (msg) => setStatus(msg),
+      onProgress: (msg,details) => {setStatus(msg);showCorrectionProgress(msg,details);},
     };
     let spec;
     if (authMode === 'ardy') {
@@ -733,11 +1051,23 @@ generateBtn.addEventListener('click', async () => {
         localStorage.setItem('claude-api-key', claudeApiKey);
         localStorage.setItem('claude-model', model);
       }
-      localStorage.setItem('refine-enabled', refineCheck.checked ? '1' : '0');
       const engineLabel = authMode === 'codex' ? 'Codex' : authMode === 'claude' ? 'Claude' : 'OpenAI';
       setStatus(t('gen.llm', { engine: engineLabel, model }));
       if (authMode === 'codex') {
-        spec = await generateMotionWithCodex(text, model, options);
+        if (refineCheck.checked && !$('visualReviewCheck').disabled && $('visualReviewCheck').checked) {
+          const fixedDuration = !autoLengthCheck.checked && ardyDurationInput.value ? Number(ardyDurationInput.value) : undefined;
+          if (fixedDuration !== undefined && (!Number.isFinite(fixedDuration) || fixedDuration < 1 || fixedDuration > 15)) throw new Error('画像レビューの長さは1〜15秒で指定してください');
+          const result = await generateReviewedMotion(text, '', model, {
+            speed: $('reviewSpeed').value, onDraft: motion => playSpec(motion),
+            skeleton: viewer.reviewSkeleton, inspect: (motion, plan) => inspectMotion(viewer, motion, plan),
+            duration: fixedDuration, loop: loopSelect.value === 'auto' ? undefined : loopSelect.value === 'on',
+            onProgress: options.onProgress,
+            request: (messages, _key, selectedModel, _delta, config) => codexBridge.generateJson({ messages, model: selectedModel, outputType: config?.outputType ?? 'motion', effort: config?.effort }),
+          });
+          spec = result.spec; showReview(result);
+        } else {
+          spec = await generateMotionWithCodex(text, model, options);
+        }
       } else if (authMode === 'claude') {
         const progress = startLLMProgressBar();
         try {
@@ -751,10 +1081,26 @@ generateBtn.addEventListener('click', async () => {
       } else {
         const progress = startLLMProgressBar();
         try {
-          spec = await generateMotionWithOpenAI(text, apiKey, model, {
-            ...options,
-            onFraction: progress.update,
-          });
+          if (refineCheck.checked && !$('visualReviewCheck').disabled && $('visualReviewCheck').checked) {
+            if (model !== 'gpt-6-astra' || apiBaseUrlInput.value.trim()) throw new Error('画像レビューは公式OpenAIのGPT-6 Astraを選択してください');
+            const fixedDuration = !autoLengthCheck.checked && ardyDurationInput.value ? Number(ardyDurationInput.value) : undefined;
+            if (fixedDuration !== undefined && (!Number.isFinite(fixedDuration) || fixedDuration < 1 || fixedDuration > 15)) throw new Error('画像レビューの長さは1〜15秒で指定してください');
+            const result = await generateReviewedMotion(text, apiKey, model, {
+              speed: $('reviewSpeed').value, onDraft: motion => playSpec(motion),
+              skeleton: viewer.reviewSkeleton,
+              inspect: (motion, plan) => inspectMotion(viewer, motion, plan),
+              duration: fixedDuration,
+              loop: loopSelect.value === 'auto' ? undefined : loopSelect.value === 'on',
+              onProgress: options.onProgress,
+            });
+            spec = result.spec;
+            showReview(result);
+          } else {
+            spec = await generateMotionWithOpenAI(text, apiKey, model, {
+              ...options,
+              onFraction: progress.update,
+            });
+          }
         } finally {
           progress.done();
         }
@@ -776,23 +1122,29 @@ generateBtn.addEventListener('click', async () => {
     addHistory(spec, buffer, text);
     if (spec.flavor) {
       setStatus(
-        t('playing', { name: spec.name, dur: spec.duration.toFixed(1), loop: spec.loop ? t('loop.yes') : t('loop.no') }) + `\n🎬 ${spec.flavor}`,
+        () => ({playback:spec}),
         'ok'
       );
     } else if (authMode === 'ardy') {
-      const jaNote = spec.originalText ? t('ja.note', { en: spec.name }) : '';
-      const loopNote = spec.loop ? t('loop.playing') : t('loop.once');
       setStatus(
-        t('playing.ardy', { name: spec.originalText ?? spec.name, ja: jaNote, dur: spec.duration.toFixed(1), loop: loopNote, auto: loopSelect.value === 'auto' ? t('loop.autoJudged') : '' }),
+        () => ({playback:spec}),
         'ok'
       );
+    }
+    if (spec.plannerNote) {
+      const message = statusEl.textContent;
+      const render = statusRenderer ?? (() => message);
+      setStatus(() => {const value=render();return value?.playback?{...value,note:spec.plannerNote}:`${value}\n${spec.plannerNote}`;}, 'ok');
     }
   } catch (e) {
     console.error(e);
     setStatus(t('error', { msg: e.message }), 'err');
   } finally {
     generateBtn.disabled = false;
+    $('reviewProgress').classList.add('hidden');
+    for (const element of lockedElements) element.inert = false;
     waypointClearBtn.disabled = false;
+    void refreshCodexUsage();
   }
 });
 
@@ -927,6 +1279,7 @@ $('clearHistoryBtn').addEventListener('click', () => {
 
 // --- VRMアップロード ---
 async function loadVRMFile(file) {
+  if (generateBtn.disabled) return;
   if (!file || !/\.vrm$/i.test(file.name)) {
     setStatus(t('err.pickVrm'), 'err');
     return;
@@ -954,12 +1307,17 @@ vrmFile.addEventListener('change', () => {
 
 // --- 外部VRMAの読み込み再生 (ドラッグ&ドロップ) ---
 async function loadVRMAFile(file) {
+  if (generateBtn.disabled) return;
+  window.__motionChecks=null;
+  renderMotionChecks(null);
+  window.__motionPlanning=null;
+  renderGenerationRoute(null);
   try {
     setStatus(t('file.loading', { name: file.name }));
     const buf = await file.arrayBuffer();
     await viewer.playVRMA(buf, true);
     showPlaybackBar(true);
-    setStatus(t('file.playing', { name: file.name }), 'ok');
+    setStatus(() => t('file.playing', { name: file.name }), 'ok');
   } catch (e) {
     console.error(e);
     setStatus(t('err.vrmaLoad', { msg: e.message }), 'err');
@@ -1002,11 +1360,13 @@ apiCustomModelInput.addEventListener('change', () => {
   localStorage.setItem('openai-custom-model', apiCustomModelInput.value.trim());
 });
 setApiBase(apiBaseUrlInput.value); // 起動時に保存済みのベースURLを反映
-refineCheck.checked = localStorage.getItem('refine-enabled') !== '0';
-autoLengthCheck.checked = localStorage.getItem('auto-length') === '1';
-autoLengthCheck.addEventListener('change', () => {
-  localStorage.setItem('auto-length', autoLengthCheck.checked ? '1' : '0');
-});
+refineCheck.checked = false;
+function syncAutoLength() {
+  autoLengthCheck.checked = ardyDurationInput.value.trim() === '';
+}
+syncAutoLength();
+ardyDurationInput.addEventListener('input', syncAutoLength);
+ardyDurationInput.addEventListener('change', syncAutoLength);
 exprCheck.checked = localStorage.getItem('export-expressions') !== '0';
 loopSelect.value = 'auto'; // ループ再生は毎回「自動」で開始 (記憶しない)
 
@@ -1101,6 +1461,10 @@ if (savedModel && [...apiModelSelect.options].some((o) => o.value === savedModel
 } else {
   apiModelSelect.value = DEFAULT_OPENAI_MODEL;
 }
+// ARDYの動作計画とローカルAPIにも、生成前から選択したモデルを反映する。
+apiModelSelect.addEventListener('change', () => {
+  localStorage.setItem('openai-model', apiCustomModelInput.value.trim() || apiModelSelect.value);
+});
 ardyUrlInput.addEventListener('change', () => {
   if (isArdyMode()) checkArdyHealth();
 });
@@ -1178,7 +1542,7 @@ ardyStartBtn.addEventListener('click', () => {
 authModeSelect.addEventListener('change', () => {
   localStorage.setItem('openai-auth-mode', authModeSelect.value);
   renderAuthMode();
-  if (authModeSelect.value === 'codex') refreshCodexStatus();
+  if (authModeSelect.value === 'codex' || (authModeSelect.value === 'ardy' && $('ardyPlanner').value === 'codex')) refreshCodexStatus();
 });
 codexModelSelect.addEventListener('change', () => {
   localStorage.setItem('codex-model', codexModelSelect.value);

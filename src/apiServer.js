@@ -1,8 +1,10 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { CodexClient } from '../electron/codex-client.cjs';
 import { buildVRMA } from './vrmaBuilder.js';
 import { autoExpressions } from './autoExpressions.js';
-import { appendNeutralEnding, rescaleSpec, isLoopFriendly } from './specMerge.js';
+import { rescaleSpec, isLoopFriendly } from './specMerge.js';
 import {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_CLAUDE_MODEL,
@@ -10,11 +12,33 @@ import {
   generateMotionWithClaude,
   planArdySegments,
   setApiBase,
+  SYSTEM_PROMPT, REFINE_INSTRUCTION, validateSpec, callClaude,
 } from './llm.js';
 
 const JSON_LIMIT = 1024 * 1024;
 const DEFAULT_ARDY_URL = 'http://127.0.0.1:2337';
-const ENGINES = ['openai', 'claude', 'ardy'];
+const ENGINES = ['ardy', 'codex', 'openai', 'claude'];
+
+async function codexRequest(messages, _key, model, _delta, options = {}) {
+  const client = new CodexClient({ cwd: tmpdir() });
+  try { return await client.generateJson({ messages, model, ...options }); }
+  finally { client.close(); }
+}
+
+export async function generateMotionWithCodexHttp(prompt, model, { refine = true, speed } = {}) {
+  const client = new CodexClient({ cwd: tmpdir() });
+  try {
+    const status = await client.getStatus();
+    if (status.account?.type !== 'chatgpt') {
+      const error = new Error('CodexにChatGPTでログインしてください');
+      error.status = 503; error.code = 'codex_not_authenticated'; throw error;
+    }
+    const spec = await client.generateMotion({ model, systemPrompt: SYSTEM_PROMPT,
+      prompt: prompt + (speed === 'fast' ? '\n速度優先。主役の関節に絞り1ボーン最大8キー。コンパクトJSONで返す。' : ''),
+      refinePrompt: REFINE_INSTRUCTION, refine, speed });
+    validateSpec(spec); return spec;
+  } finally { client.close(); }
+}
 // DNSリバインディング対策で許可するHostヘッダー (ポート番号は除いて比較する)
 const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1', '[::1]'];
 const ALLOWED_METHODS = ['GET', 'POST', 'OPTIONS'];
@@ -48,15 +72,17 @@ export async function generateMotionWithArdy(text, {
   duration = 0,
   waypoints = null,
   fetchImpl = fetch,
+  plannerRequest,
 } = {}) {
   const base = String(ardyUrl).replace(/\/+$/, '');
 
   // GPT (頭) が動作分割を担当。キーが無い・失敗した場合はエンジン内蔵の翻訳に任せる
   let plan = null;
-  if (apiKey) {
+  if (apiKey || plannerRequest) {
     try {
-      plan = await planArdySegments(text, apiKey, model, {});
+      plan = await planArdySegments(text, apiKey, model, plannerRequest ? { request: plannerRequest, verify: false } : {});
     } catch (error) {
+      if (error.code === 'ARDY_INVALID_PLAN') throw error;
       console.warn('[Text-To-VRMA API] ARDYの動作分割に失敗、原文のまま生成します:', error.message);
     }
   }
@@ -102,13 +128,14 @@ export async function generateMotionWithArdy(text, {
   }
 
   const spec = await res.json();
+  spec.planning = { used: Boolean(plan) };
   if (plan) spec.originalText = text;
-  // 自動判定のループ既定値 → 非ループは直立姿勢へ戻して終わる → 秒数固定時のみ全体補正
-  spec.loop = isLoopFriendly(spec);
-  if (!spec.loop) appendNeutralEnding(spec);
+  if (plan) spec.motionPlan = {segments:plan.segments,checks:plan.checks};
+  // Preserve the generated ending; forcing a standing pose can slide planted feet.
+  spec.loop = isLoopFriendly(spec, text);
   if (forceDur) rescaleSpec(spec, duration);
   // ARDYは表情を作らないので補う (GPTの感情判定があれば優先)
-  spec.expressions = autoExpressions(spec.originalText ?? text, spec.duration, plan?.expression);
+  spec.expressions = autoExpressions(spec.originalText ?? text, spec.duration, plan?.expression, plan?.segments);
   return spec;
 }
 
@@ -176,10 +203,12 @@ function openApiDocument() {
                 prompt: { type: 'string', maxLength: 4000 },
                 engine: {
                   type: 'string', enum: ENGINES, default: 'openai',
-                  description: 'openai: OPENAI_API_KEYが必要 / claude: ANTHROPIC_API_KEYが必要 / ardy: ローカルARDYエンジン (キー不要)',
+                  description: 'codex: ChatGPTログインのサブスク枠 / openai・claude: APIキーが必要 / ardy: ローカルARDYエンジン',
                 },
                 model: { type: 'string', description: 'openai・claudeでは生成モデル、ardyでは動作分割に使うGPTモデル' },
                 refine: { type: 'boolean', default: true, description: 'openai・claudeで有効な2パス自己修正' },
+                speed: { type: 'string', enum: ['fast', 'balanced', 'quality'], description: 'openai・codex用。fastは推論とキー数を抑え、refine省略時は自己修正なし。' },
+                planner: { type: 'string', enum: ['codex', 'openai', 'claude', 'none'], default: 'codex', description: 'ARDYの動作計画を担当。失敗時は原文でローカル生成。有料APIへ自動切替しません。' },
                 format: { type: 'string', enum: ['json', 'vrma'], default: 'json' },
                 duration: { type: 'number', exclusiveMinimum: 0, description: 'ardyのみ: 生成する長さ(秒)' },
                 waypoints: {
@@ -218,6 +247,7 @@ export function createApiServer({
   generateMotion = generateMotionWithOpenAI,
   generateClaude = generateMotionWithClaude,
   generateArdy = generateMotionWithArdy,
+  generateCodex = generateMotionWithCodexHttp,
   build = buildVRMA,
 } = {}) {
   setApiBase(apiBase);
@@ -352,6 +382,13 @@ export function createApiServer({
           apiError(res, 400, 'refineはbooleanで指定してください', 'invalid_refine', corsHeaders);
           return;
         }
+        if (body.speed !== undefined && (!['fast', 'balanced', 'quality'].includes(body.speed) || !['openai', 'codex'].includes(engine))) {
+          apiError(res, 400, 'speedはopenai・codexでfast / balanced / qualityを指定してください', 'invalid_speed', corsHeaders);
+          return;
+        }
+        if (body.planner !== undefined && (!['codex', 'openai', 'claude', 'none'].includes(body.planner) || engine !== 'ardy')) {
+          apiError(res, 400, 'plannerはardyでcodex / openai / claude / noneを指定してください', 'invalid_planner', corsHeaders); return;
+        }
         if (body.duration !== undefined
           && (typeof body.duration !== 'number' || !Number.isFinite(body.duration) || body.duration <= 0)) {
           apiError(res, 400, 'durationは正の数値で指定してください', 'invalid_duration', corsHeaders);
@@ -365,23 +402,28 @@ export function createApiServer({
         // ardyの既定モデルは動作分割 (GPTが頭) に使うのでOpenAI側の既定を流用する
         const model = typeof body.model === 'string' && body.model.trim()
           ? body.model.trim()
-          : (engine === 'claude' ? defaultClaudeModel : defaultModel);
+          : (engine === 'claude' || (engine === 'ardy' && body.planner === 'claude') ? defaultClaudeModel : defaultModel);
         let spec;
         if (engine === 'ardy') {
+          const planner = body.planner ?? 'codex';
           spec = await generateArdy(prompt, {
             ardyUrl,
-            apiKey,
+            apiKey: planner === 'openai' ? apiKey : planner === 'claude' ? claudeApiKey : '',
+            ...(planner === 'codex' ? { plannerRequest: codexRequest } : planner === 'claude' && claudeApiKey ? { plannerRequest: callClaude } : {}),
             model,
             duration: body.duration ?? 0,
             waypoints: body.waypoints ?? null,
           });
+        } else if (engine === 'codex') {
+          spec = await generateCodex(prompt, model, { refine: body.refine ?? body.speed !== 'fast', speed: body.speed });
         } else if (engine === 'claude') {
           spec = await generateClaude(prompt, claudeApiKey, model, {
             refine: body.refine !== false,
           });
         } else {
           spec = await generateMotion(prompt, apiKey, model, {
-            refine: body.refine !== false,
+            refine: body.refine ?? body.speed !== 'fast',
+            ...(body.speed ? { speed: body.speed } : {}),
           });
         }
 
@@ -403,7 +445,7 @@ export function createApiServer({
           created: Math.floor(Date.now() / 1000),
           engine,
           // ARDYではモデルは動作分割 (GPTが頭) にしか使わない。キーが無ければ未使用
-          model: engine === 'ardy' && !apiKey ? null : model,
+          model: engine === 'ardy' && !spec.planning?.used ? null : model,
           spec,
         }, corsHeaders);
         return;
