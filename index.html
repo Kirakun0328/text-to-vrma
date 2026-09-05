@@ -434,6 +434,13 @@
         </div>
         <div id="codexSettingsHome"><div id="codexSettings" class="auth-box hidden">
           <div id="codexAuthState" class="auth-state" data-i18n="codex.checking">Codex CLIを確認中...</div>
+          <div id="codexSetupHelp" class="sub hidden">
+            <p data-i18n="Codexが未導入、または古い場合はPC側でインストール・更新してください。アプリには同梱していません。">Codexが未導入、または古い場合はPC側でインストール・更新してください。アプリには同梱していません。</p>
+            <details style="margin-top:6px"><summary data-i18n="インストール・更新の手順">インストール・更新の手順</summary>
+              <p data-i18n="Node.jsのnpmが使えるターミナルで次を実行し、アプリを再起動してください。動作確認済みの0.153.3を導入します。">Node.jsのnpmが使えるターミナルで次を実行し、アプリを再起動してください。動作確認済みの0.153.3を導入します。</p>
+              <code style="display:block;overflow-wrap:anywhere;margin-top:6px;user-select:all">npm install -g @openai/codex@0.153.3</code>
+            </details>
+          </div>
           <select id="codexModelSelect" disabled>
             <option value="" data-i18n="codex.afterLogin">ログイン後にモデルを取得します</option>
           </select>

@@ -5,8 +5,8 @@ const path = require('node:path');
 const { existsSync } = require('node:fs');
 const LOCAL_CODEX = path.join(__dirname, '..', 'node_modules', '.bin', process.platform === 'win32' ? 'codex.cmd' : 'codex');
 function resolveCodexCommand(resourcesPath = process.resourcesPath, exists = existsSync) {
-  const bundled = resourcesPath && path.join(resourcesPath, 'codex', 'bin', 'codex.exe');
-  if (bundled && exists(bundled)) return bundled;
+  // Electron uses the user's CLI. Only Node/Vite development uses the pinned local CLI.
+  if (resourcesPath) return 'codex';
   return exists(LOCAL_CODEX) ? LOCAL_CODEX : 'codex';
 }
 
@@ -190,6 +190,7 @@ class CodexClient extends EventEmitter {
       return {
         available: true,
         version: this.version,
+        updateRecommended: compareVersions(this.version, [0, 153, 3]) < 0,
         account: result.account,
         requiresOpenaiAuth: result.requiresOpenaiAuth,
       };

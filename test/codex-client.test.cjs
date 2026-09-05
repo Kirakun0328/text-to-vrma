@@ -9,12 +9,13 @@ const {
   friendlyError,
 } = require('../electron/codex-client.cjs');
 
-test('packaged app prefers its bundled CLI even in a path containing spaces', () => {
+test('Electron uses the PC CLI even when a bundled or development CLI exists', () => {
   const {resolveCodexCommand} = require('../electron/codex-client.cjs');
   const path = require('node:path');
   const resources = path.join('example app', 'resources');
   const expected = path.join(resources, 'codex', 'bin', 'codex.exe');
-  assert.equal(resolveCodexCommand(resources, value=>value===expected), expected);
+  assert.equal(resolveCodexCommand(resources, value=>value===expected), 'codex');
+  assert.equal(resolveCodexCommand(resources, ()=>true), 'codex');
   assert.equal(resolveCodexCommand(resources, ()=>false), 'codex');
 });
 
@@ -25,6 +26,17 @@ test('Codex usage reads account rate limits without starting a generation', asyn
     assert.equal(usage.rateLimits.primary.usedPercent, 25);
     assert.equal(getTurnCount(), 0);
   } finally { client.close(); }
+});
+
+test('status recommends updating older CLI versions without blocking supported ones', async () => {
+  for (const version of ['0.144.4', '0.153.3', '0.154.0']) {
+    const {client} = createFakeCodex({version});
+    try {
+      const status = await client.getStatus();
+      assert.equal(status.available,true);
+      assert.equal(status.updateRecommended,version==='0.144.4');
+    } finally {client.close();}
+  }
 });
 
 function createFakeCodex({ version = '0.144.4' } = {}) {

@@ -719,6 +719,7 @@ async function refreshCodexStatus(providedStatus) {
   if (!codexBridge) return;
   try {
     codexStatus = providedStatus || await codexBridge.getStatus();
+    $('codexSetupHelp').classList.toggle('hidden', codexStatus.available && !codexStatus.updateRecommended);
     const account = codexStatus.account;
     if (!codexStatus.available) {
       setCodexAuthState(codexStatus.error || t('codex.unavailable'), 'err');
@@ -738,6 +739,7 @@ async function refreshCodexStatus(providedStatus) {
     codexLogoutBtn.disabled = account?.type !== 'chatgpt';
   } catch (error) {
     codexStatus = { available: false, account: null };
+    $('codexSetupHelp').classList.remove('hidden');
     setCodexAuthState(error.message, 'err');
     codexLoginBtn.disabled = true;
     codexLogoutBtn.disabled = true;
