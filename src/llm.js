@@ -173,11 +173,24 @@ export const REFINE_INSTRUCTION = `以下は上記の指示で生成されたモ
 6. 表現: 定型的・機械的すぎないか。実際の人間がやる動きとして違和感がないか。`;
 
 // Claude API (Anthropic) 対応: ブラウザから直接呼び出す (OpenAIキーと同様、localStorageにのみ保存)
-export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5';
+export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5-5';
 const CLAUDE_API_BASE = 'https://api.anthropic.com/v1';
 const CLAUDE_VERSION = '2023-06-01';
-// claude-opus-5 / claude-sonnet-5 は既定でadaptive thinkingが有効 (claude-haiku-4-5は既定オフ)
-const THINKING_MODELS = ['claude-opus-5', 'claude-sonnet-5'];
+// claude-haiku-4-5 以外は既定でadaptive thinkingが有効 (claude-haiku-4-5は既定オフ)
+const THINKING_MODELS = [
+  'claude-fable-5-1',
+  'claude-opus-5-5', 'claude-opus-5',
+  'claude-sonnet-5-5', 'claude-sonnet-5',
+  'claude-haiku-5-5',
+];
+// claude-opus-5-5 は effort の既定が 'medium' (claude-opus-5 は 'high')。
+// 従来と同等の精度を保つため明示的に 'high' を指定する
+// (claude-haiku-5-5 も既定 'medium' だが、低コスト枠なので既定のままにする)
+const HIGH_EFFORT_MODELS = ['claude-opus-5-5'];
+// 安全性分類器で拒否された場合に、サーバー側で推奨モデルへ自動で再実行させる
+// (claude-haiku-5-5 はサーバー側フォールバック非対応のため含めない)
+const FALLBACK_MODELS = ['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5'];
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
 // 進捗%の分母。Claudeは thinking の文字数も分子に入れるので、本文だけを学習する
 // OpenAI側のEMA (expectedResponseChars) を使うと分母が小さすぎて早々に99%で
@@ -214,6 +227,7 @@ export async function callClaude(messages, apiKey, model, onDelta) {
       'anthropic-version': CLAUDE_VERSION,
       // ブラウザから直接APIを叩くための必須ヘッダー (Anthropicは既定でCORSをブロックする)
       'anthropic-dangerous-direct-browser-access': 'true',
+      ...(FALLBACK_MODELS.includes(model) ? { 'anthropic-beta': FALLBACK_BETA } : {}),
     },
     body: JSON.stringify({
       model,
@@ -229,6 +243,10 @@ export async function callClaude(messages, apiKey, model, onDelta) {
       ...(THINKING_MODELS.includes(model)
         ? { thinking: { type: 'adaptive', display: 'summarized' } }
         : {}),
+      ...(HIGH_EFFORT_MODELS.includes(model) ? { output_config: { effort: 'high' } } : {}),
+      // 途中で拒否→フォールバックした場合も、ストリームは打ち切られず
+      // フォールバック先モデルが続きを生成するので、受信処理は変更不要
+      ...(FALLBACK_MODELS.includes(model) ? { fallbacks: 'default' } : {}),
       ...(onDelta ? { stream: true } : {}),
     }),
   });
@@ -317,7 +335,7 @@ function parseJsonLenient(text) {
  * Claude API でテキストからモーション spec を生成する。
  * @param {string} text ユーザー入力
  * @param {string} apiKey Claude APIキー (sk-ant-...)
- * @param {string} model 使用するモデル ID (例: 'claude-opus-5')
+ * @param {string} model 使用するモデル ID (例: 'claude-opus-5-5')
  * @param {object} [options]
  * @param {boolean} [options.refine=true] 2パス目で自己修正を行う
  * @param {(msg: string) => void} [options.onProgress] 進捗表示コールバック

@@ -29,7 +29,7 @@
 - 🔁 **ループ再生** — 頭と末尾をつないで途切れなく再生
 - 😊 **表情の自動生成** + 4言語UI (日本語 / English / 中文 / 한국어)
 - 🔌 **OpenAI互換プロバイダ対応** — OpenRouter / DeepSeek / Ollama 等も使えます
-- 🟣 **Claude API対応** — Anthropic の Claude (claude-opus-5 等) でもモーション生成できます
+- 🟣 **Claude API対応** — Anthropic の Claude (claude-opus-5-5 等) でもモーション生成できます
 
 生成エンジンは2種類から選べます:
 
@@ -137,7 +137,7 @@ npm run app:dev
      ローカルHTTP APIではリクエストの `model` に `gpt-6-astra`、
      または環境変数 `OPENAI_MODEL=gpt-6-astra` を指定できます。
    - **Claude API**: Anthropic の Claude APIキー (sk-ant-...) を入力し、モデル
-     (claude-opus-5 / claude-sonnet-5 / claude-haiku-4-5) を選択します。
+     (claude-fable-5-1 / claude-opus-5-5 / claude-sonnet-5-5 / claude-haiku-5-5 / claude-opus-5 / claude-sonnet-5 / claude-haiku-4-5) を選択します。
      キーはブラウザの localStorage にのみ保存され、Anthropic 以外には送信されません。
      Claude API対応は [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) さん
      ([#9](https://github.com/Kirakun0328/text-to-vrma/pull/9)) のコントリビュートによるもので、
@@ -493,7 +493,7 @@ curl -X POST http://127.0.0.1:8787/v1/motions \
 # Claude で生成 (サーバー起動時に ANTHROPIC_API_KEY が必要)
 curl -X POST http://127.0.0.1:8787/v1/motions \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"お辞儀する","engine":"claude","model":"claude-sonnet-5"}'
+  -d '{"prompt":"お辞儀する","engine":"claude","model":"claude-sonnet-5-5"}'
 ```
 
 環境変数: `PORT` (既定 8787) / `HOST` (既定 127.0.0.1) / `OPENAI_API_KEY` /
