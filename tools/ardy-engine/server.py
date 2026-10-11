@@ -5,7 +5,9 @@
 #
 # 起動例:
 #   python server.py --merged-base C:\path\to\llm2vec-base-merged
-#   (テキストエンコーダをCPUで動かす場合は環境変数 TEXT_ENCODER_DEVICE=cpu)
+#   python server.py --text-encoder C:\path\to\encoder --text-encoder-device cuda
+#   (テキストエンコーダのデバイスは --text-encoder-device、従来通り環境変数
+#    TEXT_ENCODER_DEVICE でも指定可。両方ある場合はCLIが優先)
 #
 # API:
 #   GET  /health   → {"status":"ok","model":...,"translator":...}
@@ -34,6 +36,20 @@ def parse_args():
         default=os.environ.get("ARDY_MERGED_BASE", ""),
         help="mntpマージ済みLlama-3-8Bのローカルパス (未指定なら公式gatedリポジトリ経由)",
     )
+    ap.add_argument(
+        "--text-encoder",
+        default="",
+        help="テキストエンコーダのパス (ローカルディレクトリを想定)。指定時はその"
+             "パスだけを読み込み、ARDY既定のエンコーダや別のHugging Faceモデルは"
+             "取得しない。BF16 / 8-bit / 4-bit はconfig.jsonのquantization_config"
+             "で自動判別 (--merged-base より優先)",
+    )
+    ap.add_argument(
+        "--text-encoder-device",
+        default="",
+        help="テキストエンコーダのデバイス (cuda / cpu / cuda:1 等)。環境変数"
+             " TEXT_ENCODER_DEVICE より優先。未指定なら従来通りの挙動",
+    )
     ap.add_argument("--no-translate", action="store_true", help="日本語自動英訳を無効化")
     ap.add_argument(
         "--arm-spread", type=float, default=6.0,
@@ -49,11 +65,55 @@ def parse_args():
 
 ARGS = parse_args()
 
+# テキストエンコーダのデバイス: CLI (--text-encoder-device) > 環境変数 TEXT_ENCODER_DEVICE。
+# ardy 側の LLM2VecEncoder は生成時に TEXT_ENCODER_DEVICE 環境変数を直接読むため、
+# 解決後の値を環境変数へ反映して、CLI指定とenv指定が食い違う場合もCLIが必ず勝つようにする
+ENCODER_DEVICE = (
+    ARGS.text_encoder_device or os.environ.get("TEXT_ENCODER_DEVICE", "")
+).strip().lower()
+if ENCODER_DEVICE:
+    os.environ["TEXT_ENCODER_DEVICE"] = ENCODER_DEVICE
+
 # --- 起動状態 ---
 # モデル読み込みは _boot() が別スレッドで行う。これによりサーバーは起動直後から
 # HTTPで応答でき、GET /health が読み込み進捗 (%) を返せる
 BOOT = {"ready": False, "stage": "libs", "fraction": 0.01, "error": None}
 GEN_LOCK = threading.Lock()
+
+
+def load_selected_text_encoder(path: str, device: str = ""):
+    """--text-encoder で指定されたテキストエンコーダだけを構築して返す。
+
+    指定パスが唯一の情報源: トークナイザ / config / llm2vec_config / 重みを
+    すべてそのパスから読み、peftアダプタ等の別リポジトリは一切取得しない。
+    ディレクトリの config.json に quantization_config があれば bitsandbytes が
+    そのまま尊重するため、BF16 / 8-bit / 4-bit を同一コードパスで扱える。
+
+    ARDY本体の読み込み機構 (TEXT_ENCODER_PRESETS + load_text_encoder) をそのまま
+    使い、base/peft の参照先だけを差し替える。返したオブジェクトは
+    load_model(..., text_encoder=...) で ARDY に注入され、ARDY側で作り直されない。
+    """
+    ardy_load_model = importlib.import_module("ardy.model.load_model")
+    from ardy.model.loading import get_env_var
+
+    preset_name = get_env_var("TEXT_ENCODER", ardy_load_model.DEFAULT_TEXT_ENCODER)
+    preset = ardy_load_model.TEXT_ENCODER_PRESETS.get(preset_name)
+    if preset is None:
+        available = ", ".join(sorted(ardy_load_model.TEXT_ENCODER_PRESETS))
+        raise ValueError(f"Unknown TEXT_ENCODER={preset_name!r}. Available: {available}")
+
+    saved_kwargs = preset["kwargs"]
+    preset["kwargs"] = {
+        **saved_kwargs,
+        "base_model_name_or_path": path,
+        # 指定エンコーダ以外はロードしない (既定のpeftアダプタは適用しない)
+        "peft_model_name_or_path": None,
+    }
+    try:
+        # mode="local": auto選択が別途のAPIサービスへ倒れることを防ぐ
+        return ardy_load_model.load_text_encoder(mode="local", device=device or None)
+    finally:
+        preset["kwargs"] = saved_kwargs
 
 
 def _watch_encoder_rss(start_frac, end_frac, expected_bytes):
@@ -82,7 +142,7 @@ def _boot():
         print("loading ARDY model... (first time: 1-2 min)", flush=True)
         import torch
 
-        if ARGS.merged_base:
+        if ARGS.merged_base and not ARGS.text_encoder:
             lm = importlib.import_module("ardy.model.load_model")
             lm.TEXT_ENCODER_PRESETS["llm2vec"]["kwargs"]["base_model_name_or_path"] = ARGS.merged_base
 
@@ -101,23 +161,27 @@ def _boot():
 
         # ardy側の load_text_encoder は最後に .to(model_device) するため、そのままだと
         # TEXT_ENCODER_DEVICE=cpu の指定が上書きされる (8Bエンコーダが VRAM ~15GB を占有)。
-        # 指定がある場合はエンコーダを先に目的デバイスで構築して load_model に渡す
+        # エンコーダ指定がある場合は先に目的デバイスで構築して load_model に渡す
         BOOT["stage"] = "encoder"
         BOOT["fraction"] = 0.05
         _watch_encoder_rss(0.05, 0.80, 17 * 1024 ** 3)  # 8Bエンコーダ ≒ 16GB
-        _enc_dev = os.environ.get("TEXT_ENCODER_DEVICE", "").strip().lower()
-        _pre_encoder = None
-        if _enc_dev:
+        _enc_dev = ENCODER_DEVICE
+        text_encoder = None
+        if ARGS.text_encoder:
+            # 明示指定のエンコーダ: 指定パスだけを読み込み、ARDY既定のエンコーダは
+            # 作らない。失敗時は握りつぶさず起動エラーにする (暗黙のフォールバックなし)
+            text_encoder = load_selected_text_encoder(ARGS.text_encoder, _enc_dev)
+        elif _enc_dev:
             try:
                 from ardy.model.load_model import load_text_encoder
-                _pre_encoder = load_text_encoder(device=_enc_dev)
+                text_encoder = load_text_encoder(device=_enc_dev)
             except (ImportError, AttributeError):
-                _pre_encoder = None  # 旧版ardy: 下の保険で移動する
+                text_encoder = None  # 旧版ardy: 下の保険で移動する
 
         BOOT["stage"] = "ardy"
         BOOT["fraction"] = max(BOOT["fraction"], 0.82)
-        if _pre_encoder is not None:
-            model = load_model(ARGS.model, device=DEVICE, text_encoder=_pre_encoder)
+        if text_encoder is not None:
+            model = load_model(ARGS.model, device=DEVICE, text_encoder=text_encoder)
         else:
             model = load_model(ARGS.model, device=DEVICE)
 
@@ -158,10 +222,12 @@ def _load_translator():
 
         tok = MarianTokenizer.from_pretrained(TRANSLATOR_MODEL)
         mt = MarianMTModel.from_pretrained(TRANSLATOR_MODEL)
+        mt = mt.to("cuda")
         mt.eval()
 
         def translate(text: str) -> str:
             batch = tok([text], return_tensors="pt", truncation=True, max_length=256)
+            batch = {k: v.to(mt.device) for k, v in batch.items()}
             with torch.no_grad():
                 out = mt.generate(**batch, max_length=256, num_beams=4)
             return tok.decode(out[0], skip_special_tokens=True)

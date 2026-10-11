@@ -60,12 +60,69 @@ Python 3.10+ と git が必要です。ダウンロード合計約20GBのため�
 ```
 
 - `--port` (既定 2337) / `--no-translate` (日本語英訳を無効化)
-- テキストエンコーダのデバイスは環境変数 `TEXT_ENCODER_DEVICE` (既定はアプリ起動時 `cpu`)
+- `--text-encoder <パス>` — テキストエンコーダを明示指定 (ローカルディレクトリ)。
+  指定ディレクトリだけを読み込み、ARDY既定のエンコーダや別のHugging Faceモデルは取得しません。
+  BF16 / 8-bit / 4-bit はディレクトリの config.json の `quantization_config` で自動判別。
+  `--merged-base` より優先
+- `--text-encoder-device cuda|cpu|cuda:1` — テキストエンコーダのデバイス。
+  環境変数 `TEXT_ENCODER_DEVICE` より優先 (未指定なら従来通り)。アニメーションモデルと
+  エンコーダは別デバイスにできます
+
+```bash
+# アニメモデルはcuda、テキストエンコーダもcudaで明示指定
+<venvのpython> tools/ardy-engine/server.py \
+  --model ARDY-Core-RP-20FPS-Horizon40 \
+  --text-encoder <encoder-dir> \
+  --text-encoder-device cuda
+```
+
+- テキストエンコーダのデバイスは環境変数 `TEXT_ENCODER_DEVICE` でも指定可 (既定はアプリ起動時 `cpu`)
 
 ## API
 
 - `GET /health` → `{"status":"ok","model":...,"device":...,"translator":...}`
 - `POST /generate` `{"text":"お辞儀する","duration":4}` → モーションspec JSON
+
+## 量子化 (4-bit / 8-bit)  [実験的]
+
+llm2vec-base-merged (~16GB bf16) を bitsandbytes で量子化し、VRAM / ディスクを大幅削減できます。
+
+| ビット | 目安サイズ | VRAM (推論時) | 備考 |
+|---|---|---|---|
+| bf16 (非量子化) | ~16 GB | ~16 GB | 既定 |
+| **4-bit (nf4)** | **~4.5 GB** | **~5 GB** | 推奨。コサイン類似度 ≥0.98 で実用的 |
+| 8-bit | ~8.7 GB | ~9 GB | より高品質だが VRAM 要求大 |
+
+### 手順
+
+1. **engine venv に bitsandbytes を導入** (Linux / Windows / macOS 共通):
+   ```bash
+   <venvのpython> -m pip install bitsandbytes
+   ```
+
+2. **量子化実行** (engine venv 内で):
+   ```bash
+   # 4-bit (推奨)
+   <venvのpython> tools/ardy-engine/quantize_text_encoder.py --in <llm2vec-base-merged> --out <llm2vec-base-4bit> --bits 4 --verify 3
+
+   # 8-bit
+   <venvのpython> tools/ardy-engine/quantize_text_encoder.py --in <llm2vec-base-merged> --out <llm2vec-base-8bit> --bits 8 --verify 3
+   ```
+
+3. **量子化モデルでエンジン起動**:
+   ```bash
+   TEXT_ENCODER_DEVICE=cuda <venvのpython> tools/ardy-engine/server.py --merged-base <llm2vec-base-4bit>
+   ```
+
+   - `--merged-base` に量子化先ディレクトリを指定するだけで、config.json の `quantization_config` から自動的に量子化モードで読み込まれます。
+   - `TEXT_ENCODER_DEVICE=cuda` を推奨 (4bit/8bit は CUDA 必須)。
+
+### 注意点
+
+- Kaggle 等の GPU ノートブックで実行推奨 (T4 16GB VRAM で 4-bit 余裕、8-bit ギリギリ)。
+- 量子化にはソース (~16GB) + 出力 (~4.5/8.7GB) のディスクが必要。`df -h` で確認を。
+- 出力ディレクトリに `quantize-complete.marker` が作成されます (installer と同じ慣習)。
+- 検証 (`--verify`) は bf16 基準とコサイン類似度 ≥0.98 で判定。RAM 不足時は整合性チェックのみにフォールバック。
 
 ## ライセンス表記
 
