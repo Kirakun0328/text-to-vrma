@@ -226,7 +226,7 @@ def estimate_duration(english: str, original: str | None) -> float:
     return max(3.0, min(AUTO_MAX_DURATION, base))
 
 
-VRM_SCALE = 0.9 / 0.896  # retarget.py と同じ (アプリ座標 = Core座標 × scale)
+VRM_SCALE = (0.9 - 0.08) / 0.896  # retarget.py の LEG_SCALE と同じ (アプリ座標 = Core座標 × scale)
 
 
 def build_waypoint_conditions(waypoints, num_frames):
