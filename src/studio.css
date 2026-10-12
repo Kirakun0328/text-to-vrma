@@ -1,0 +1,106 @@
+/* Cyan / violet studio theme. Controls retain their native behavior and labels. */
+:root {
+  --bg: #060713;
+  --panel: #090c1b;
+  --card: #101327;
+  --card2: #141a32;
+  --border: #303658;
+  --text: #f0f1ff;
+  --muted: #afb7d3;
+  --accent: #86dfff;
+  --blue: #82cdff;
+  --purple: #c09aff;
+}
+
+#panel {
+  background: radial-gradient(ellipse at 0 0, #26316950, transparent 48%),
+    radial-gradient(ellipse at 100% 35%, #49217a24, transparent 52%), var(--panel);
+  border-right-color: #56539a66;
+  scrollbar-color: #514779 transparent;
+}
+.app-head { padding: 5px 0 10px; }
+#panel .brand { font-size: 26px; line-height: 1.2; font-weight: 800; letter-spacing: -.04em; text-shadow: 0 0 20px #8580ff55; }
+.brand .accent {
+  color: #ddd4ff;
+  background: linear-gradient(110deg, #a6edff, #e9deff 50%, #bb89ff);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.tagline { color: #b7bfdc; }
+.card {
+  background: linear-gradient(145deg, #151932ee, #0c1022f5);
+  border-color: #414573;
+  box-shadow: inset 0 1px 0 #c7c1ff09, 0 5px 20px #00000020;
+  border-radius: 14px;
+}
+.badge.b1, .badge.b2, .badge.b3, .badge.b4 {
+  color: #eceaff;
+  background: linear-gradient(135deg, #174e77, #58328d);
+  border: 1px solid #9bb4ff75;
+  box-shadow: 0 0 12px #7e61ff25;
+}
+.card:has(#textInput) { border-color: #51476f; box-shadow: none; gap: 8px; padding: 14px; }
+#panel .card:has(#textInput) .card-sub { display: none; }
+#panel textarea#textInput { height: 96px; min-height: 72px; padding: 10px 12px; }
+#panel .motion-shortcut { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+#textInput {
+  background: linear-gradient(140deg, #070b1c, #14102b);
+  border-color: #555187;
+  box-shadow: inset 0 2px 12px #0005;
+  caret-color: #bcb0ff;
+}
+#textInput:focus { border-color: #ac98ff; box-shadow: 0 0 0 3px #9771ff18; }
+.motion-prompt-head { flex-wrap: wrap; }
+.motion-prompt-head > div { flex: 1; min-width: 140px; }
+#promptIdeaBtn { width: auto; margin-left: auto; padding: 7px 10px; font-size: 12px; flex-shrink: 0; }
+.motion-prompt-footer { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+#panel .motion-prompt-footer > p { margin: 0; font-size: 11px; }
+#promptIdeaStatus { flex: 1; text-align: right; }
+#promptIdeaStatus:empty { display: none; }
+input, select, textarea { transition: border-color .15s, box-shadow .15s; }
+#generateBtn {
+  color: #fff;
+  background: linear-gradient(110deg, #17618f, #5340bb 55%, #8525ca);
+  border: 1px solid #bd9eff;
+  border-left-color: #94eaff;
+  min-height: 48px;
+  box-shadow: 0 0 18px #8050e835, inset 0 1px 0 #ffffff25;
+  text-shadow: 0 1px 5px #252050;
+  letter-spacing: .04em;
+}
+#generateBtn:hover:not(:disabled) { box-shadow: 0 0 26px #925aff55; }
+#generateBtn:disabled { box-shadow: none; }
+#vrmBtn, #exportBtn {
+  background: linear-gradient(110deg, #112d48, #271c45);
+  border-color: #6974b7;
+  color: #dde6ff;
+}
+.dropzone { border-color: #464a78; background: #080d1c55; }
+#waypointRow { margin-top: 2px; padding-top: 2px; border-top: 0; }
+.motion-options .setting-row { margin: 0; }
+.motion-options input, .motion-options select { background: #0c1228; }
+.gen-progress-bar { background: linear-gradient(90deg, #68d8ff, #9a70ff); }
+#genProgress, #status { background: #0f142b; border-color: #45466e; }
+.hist-item { background: linear-gradient(110deg, #101b32, #1a1530); border-color: #494873; }
+.hist-item:hover { border-color: #8f7cc4; }
+.hist-item button.play { border-color: #739bca; }
+#correctionSettings .correction-option:has(input:checked) { border-color: #9180c9; }
+.pill.ok { background: #173344; border-color: #3b617d; }
+#viewerWrap { background: #060916; }
+.viewer-head { background: linear-gradient(#090c1ac9, transparent); }
+.viewer-actions button, #playbackBar, .viewer-bar {
+  background: #0c1023eb;
+  border-color: #48456f;
+  box-shadow: 0 0 20px #0002;
+}
+#playbackBar { border-color: #6b5995; }
+#settingsDialog { border-color: #706298; box-shadow: 0 18px 90px #0009; }
+#settingsDialog::backdrop { background: #030511bc; backdrop-filter: blur(5px); }
+:is(button, input, select, textarea, summary):focus-visible { outline: 2px solid #b6dfff; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  input, select, textarea, button, .gen-progress-bar { transition: none; }
+}
+@media (max-width: 420px) {
+  #panel .brand { font-size: 23px; }
+}

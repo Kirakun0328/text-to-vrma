@@ -29,7 +29,7 @@
 - 🔁 **ループ再生** — 頭と末尾をつないで途切れなく再生
 - 😊 **表情の自動生成** + 4言語UI (日本語 / English / 中文 / 한국어)
 - 🔌 **OpenAI互換プロバイダ対応** — OpenRouter / DeepSeek / Ollama 等も使えます
-- 🟣 **Claude API対応** — Anthropic の Claude (claude-opus-5 等) でもモーション生成できます
+- 🟣 **Claude API対応** — Anthropic の Claude (claude-opus-5-5 等) でもモーション生成できます
 
 生成エンジンは2種類から選べます:
 
@@ -38,7 +38,7 @@
 | **LLMキーフレーム** (OpenAI API / Claude API / Codex / 互換API) | 正確なポーズ・手指・表情の指定が得意。セットアップ不要でどのPCでも動く。OpenAI互換API (OpenRouter/DeepSeek/Ollama等) や Anthropic の Claude API も指定可 | APIキー または Codexプラン |
 | **ARDYローカルエンジン** (v1.1〜) | NVIDIAのモーション生成AI [ARDY](https://github.com/nv-tlabs/ardy) をローカル実行。歩行・ダンス・ジャンプ等の全身運動が**モーションキャプチャ品質**。生成無制限・オフライン動作 | 追加セットアップ (下記) |
 
-ARDYモードでは、選択したAIが指示の解釈と動作計画を担当し、ARDYが身体のモーションを生成します。
+ARDYモードではARDYが身体のモーションを生成します。Codex併用では、最初の動作区間の身体・表情を設計してから生成・再生を始め、その間に後続区間を設計します。確定した区間の時刻や内容を保ち、末尾へ追加します。「ARDYのみ」は入力文から直接生成します。Jevの解析は並行して補助に使います。通常の新規生成は独立し、生成中の再入力や明示的な追加修正では現在の物理履歴からつなぎます。操作と制約は [ARDY連続生成](docs/ardy-realtime.md) を参照してください。
 
 | 動作を考えるAI | 必要なもの | 備考 |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ ARDYモードでは、選択したAIが指示の解釈と動作計画を担当�
 | **OpenAI API** | APIキー | `gpt-6-astra` も選択できます |
 | **Claude API** | APIキー | — |
 
-- 計画に失敗した場合は **ARDY内蔵翻訳で続行**します。有料APIへ自動では切り替えません
+- Codexを選んだ連続生成で認証や計画に失敗した場合は、理由を表示します。ARDY単独や有料APIへ自動では切り替えません。直接生成は「ARDYのみ」で選べます
 - 生成後のレビュー・品質設定は [モーション品質の仕組み](#モーション品質の仕組み) を参照してください
 
 モーションと同時に**表情** (笑顔・悲しみ・驚き・まばたき等) も生成されます。
@@ -131,13 +131,13 @@ npm run app:dev
      「🔌 OpenAI互換プロバイダを使う」からベースURL・モデル名を指定すれば、
      OpenRouter / DeepSeek / Ollama 等の互換APIも使えます
      モデル一覧から **GPT-6 Astra** (`gpt-6-astra`) も選択できます。
-     生成・自己修正・ARDYの動作計画に利用でき、既定モデルは `gpt-5.6-sol` です。
+     生成・自己修正・ARDYの動作計画に利用でき、既定モデルは `gpt-6.1-sol` です。
      [OpenAI公式モデル情報](https://developers.openai.com/api/docs/models/gpt-6-astra)では
      段階提供中のため、利用するAPIプロジェクトにアクセス権が必要です。
      ローカルHTTP APIではリクエストの `model` に `gpt-6-astra`、
      または環境変数 `OPENAI_MODEL=gpt-6-astra` を指定できます。
    - **Claude API**: Anthropic の Claude APIキー (sk-ant-...) を入力し、モデル
-     (claude-opus-5 / claude-sonnet-5 / claude-haiku-4-5) を選択します。
+     (claude-fable-5-1 / claude-opus-5-5 / claude-sonnet-5-5 / claude-haiku-5-5) を選択します。
      キーはブラウザの localStorage にのみ保存され、Anthropic 以外には送信されません。
      Claude API対応は [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) さん
      ([#9](https://github.com/Kirakun0328/text-to-vrma/pull/9)) のコントリビュートによるもので、
@@ -317,6 +317,74 @@ Linux対応は [@mouseos](https://github.com/mouseos) さん ([#7](https://githu
 
 本機能は Meta Llama 3 をテキストエンコーダとして利用しています。**Built with Meta Llama 3**
 
+## Jev (TypeSafe AI) による意味・感情解析 (オプション)
+
+[Jev](https://typesafe.ai/) は TypeSafe AI の「System One モデル」で、文章を生成する
+LLMとは違い、入力文を typed な選択肢・スコアに高速分類するモデルです。
+Text-To-VRMA では **Jevにモーションそのものは作らせません**。役割はあくまで、
+
+- 入力文の感情 (`emotion`) とその強さ (`emotion_intensity`)
+- 各感情の独立スコア (`affect`) と項目ごとの信頼度 (`confidences`)
+- エネルギー量 (`movement_energy`)・動きの規模・テンポ・対人態度・明示された視線
+
+を解析し、その結果を**補助情報として**生成プロンプト (ARDY / OpenAI / Claude / Codex
+共通) へ渡します。原文を優先し、動作の種類を固定しません。旧分類 `reaction` は解析APIの
+互換用で、身体生成には渡しません。実際のモーションは毎回 ARDY やLLMが生成します。
+独立した感情スコアは先行表情にも使用し、ARDYの顔が未設計なら短い開始表情としてVRMAへ補完します。
+既存の表情トラックや途中の感情変化は保持します。
+
+**JevのAPIキーがあれば自動利用します。** 未設定・エラー・タイムアウトではJevなしで
+生成を続行します。総合信頼度が低くても解析全体を捨てず、各項目の信頼度に応じて扱います。
+Codex併用の連続生成では、区間設計とJev解析を並行し、最初の身体・表情区間が確定してからARDYを開始します。
+後続の計画は末尾へ追加し、後着のJev解析は未再生の区間の生成条件へ渡します。既に再生した動きやCodexが設計した表情を上書きしません。
+
+### 有効にする方法
+
+- **アプリ / ブラウザ版**: 言語切り替えの左の「設定」で、他のAPIキーと同じ欄にある
+  Jev APIキーとモデル名を入力します。変更は自動保存されます。
+- **ローカルHTTP API (`npm run api`)**: `.env` に `JEV_API_KEY` を設定します。
+  `JEV_ENABLED=false` でサーバー全体を明示的に無効化できます (`.env.example` 参照)。
+
+### APIキーの取り扱い
+
+OpenAI / Claude のキーと同じ方針です。アプリでは `localStorage` に保存し、Electron IPC
+または同一オリジンのローカル接続サーバーを経由してJev (`https://api.typesafe.ai`) に送ります。ソースコードへの
+ハードコードはなく、ログにも出力しません (解析結果のログには感情・反応・信頼度のみを
+残し、APIキーと入力全文は出しません)。
+
+### ローカルHTTP APIからの利用
+
+`POST /v1/motions` の `use_jev` は任意の真偽値です。省略時はサーバーにキーがあれば
+自動利用し、`false` ならそのリクエストだけ解析を省略します。
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/motions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"やったー！ついに完成した！！","engine":"ardy","use_jev":true}'
+```
+
+解析結果だけが欲しい場合 (モーションは生成しない) は専用エンドポイントを使えます。
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/motion-context \
+  -H "Content-Type: application/json" \
+  -d '{"text":"えっ！？本当に！？"}'
+# => {"emotion":"surprise","emotion_intensity":0.8,"reaction":"startled", ...}
+```
+
+`use_jev` はサーバー側で `JEV_API_KEY` が設定され、明示的に無効化されていない場合のみ実際に
+動作し、リクエスト側からAPIキーを渡したり運用者の設定を上書きしたりすることはできません。
+既存のHost/Origin/トークン検証もこの2つのエンドポイントに対して同様に適用されます。
+
+### 通信について
+
+Jevを有効にすると、入力テキスト (最大2000文字に切り詰め) が TypeSafe AI のAPI
+(`https://api.typesafe.ai`) へ送信されます。新規生成は前回の演技状態を送りません。
+明示的な追加修正では、現在の動作・姿勢・表情・再生位置の限定された状態も渡します。
+
+利用経路・遅着・身体への適用確認は生成specの `jevContext` / `jev` / `realtime.jev` に記録します。
+経路と制約は [Jevの生成経路への接続](docs/jev-generation-integration.md) を参照してください。
+
 ## アーキテクチャ
 
 ```text
@@ -461,6 +529,7 @@ curl -X POST http://127.0.0.1:8787/v1/motions \
 | `GET /openapi.json` | OpenAPI 3.1 定義 |
 | `POST /v1/motions` | テキストからモーションを生成 |
 | `POST /v1/vrma` | 既存の spec を `.vrma` に変換 (キー不要) |
+| `POST /v1/motion-context` | Jevで意味・感情のみを解析 (Jev設定時のみ。下記参照) |
 
 `POST /v1/motions` のリクエスト:
 
@@ -475,6 +544,7 @@ curl -X POST http://127.0.0.1:8787/v1/motions \
 | `refine` | `true` | `openai`・`claude` で有効な2パス自己修正 |
 | `duration` | — | `ardy` のみ: 生成する長さ (秒) |
 | `waypoints` | — | `ardy` のみ: 移動経路 `[{ "x": 1, "z": 2 }]` |
+| `use_jev` | キー設定時に自動 | Jevで意味・感情を解析し補助情報として使う。`false` はリクエスト単位で無効。サーバーにJevが未設定なら従来どおり生成 |
 
 ```bash
 # ARDYローカルエンジンで生成 (APIキー不要。エンジンの起動が必要)
@@ -493,13 +563,15 @@ curl -X POST http://127.0.0.1:8787/v1/motions \
 # Claude で生成 (サーバー起動時に ANTHROPIC_API_KEY が必要)
 curl -X POST http://127.0.0.1:8787/v1/motions \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"お辞儀する","engine":"claude","model":"claude-sonnet-5"}'
+  -d '{"prompt":"お辞儀する","engine":"claude","model":"claude-sonnet-5-5"}'
 ```
 
 環境変数: `PORT` (既定 8787) / `HOST` (既定 127.0.0.1) / `OPENAI_API_KEY` /
 `OPENAI_BASE_URL` / `OPENAI_MODEL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` /
 `ARDY_URL` (既定 `http://127.0.0.1:2337`) /
-`TEXT_TO_MOTION_API_TOKEN` / `TEXT_TO_MOTION_CORS_ORIGIN`。
+`TEXT_TO_MOTION_API_TOKEN` / `TEXT_TO_MOTION_CORS_ORIGIN` /
+`JEV_API_KEY` / `JEV_ENABLED` / `JEV_MODEL` / `JEV_TIMEOUT_MS` /
+`JEV_CONFIDENCE_THRESHOLD` (詳細は後述の「Jev (TypeSafe AI) による意味・感情解析」を参照)。
 
 悪意あるWebページから勝手に叩かれないよう、以下を多層で防いでいます。
 

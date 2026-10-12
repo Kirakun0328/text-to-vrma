@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { prepareContinuousLoop } from './loopPlayback.js';
+import { createReaction, advanceReaction, FACE_NAMES } from './jevRuntime.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import {
   VRMAnimationLoaderPlugin,
@@ -25,9 +26,9 @@ export class Viewer {
     this.renderer.setPixelRatio(window.devicePixelRatio);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0d1119);
+    this.scene.background = new THREE.Color(0x060916);
     // 追従グリッドの端をフォグで背景に溶かし、地面が無限に続くように見せる
-    this.scene.fog = new THREE.Fog(0x0d1119, 22, 95);
+    this.scene.fog = new THREE.Fog(0x060916, 22, 95);
 
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 300);
     this.camera.position.set(0, 1.2, 3.2);
@@ -47,7 +48,7 @@ export class Viewer {
 
     // 地面グリッド (1マス=1m)。キャラの真下へ毎フレーム追従させることで、
     // どこまで歩いても地面が続く「無制限」の見た目にする (メッシュ自体は有限で軽量)
-    this.grid = new THREE.GridHelper(200, 200, 0x3a4152, 0x262b36);
+    this.grid = new THREE.GridHelper(200, 200, 0x45436b, 0x202642);
     this.scene.add(this.grid);
 
     this.loader = new GLTFLoader();
@@ -72,7 +73,31 @@ export class Viewer {
 
   _tick() {
     const dt = this.clock.getDelta();
+    this._retiringActions = (this._retiringActions || []).filter(entry => {
+      entry.remaining -= dt;
+      if (entry.remaining > 0) return true;
+      entry.action.stop();
+      entry.mixer.uncacheClip(entry.action.getClip());
+      return false;
+    });
+    // Restore the underlying animation values before evaluating the next frame.
+    const manager = this.vrm?.expressionManager;
+    for (const [name, value] of Object.entries(this._reactionBase || {})) manager?.setValue(name, value);
+    this._reactionBase = {};
     if (this.mixer) this.mixer.update(dt);
+    if (this._reaction && manager) {
+      const reaction = this._reaction;
+      const names = [...new Set([...FACE_NAMES, 'lookLeft', 'lookRight', 'lookUp', 'lookDown',
+        ...Object.keys(reaction.targets), ...Object.keys(reaction.influences)])]
+        .filter(name => manager.getExpression(name));
+      const base = Object.fromEntries(names.map(name => [name, manager.getValue(name) || 0]));
+      const { values, active } = advanceReaction(reaction, base, dt);
+      for (const [name, value] of Object.entries(values)) {
+        this._reactionBase[name] = base[name];
+        manager.setValue(name, value);
+      }
+      if (!active) this._reaction = null;
+    }
     if (this.vrm) this.vrm.update(dt);
     this._followCharacter(dt);
     this._followGrid();
@@ -112,7 +137,11 @@ export class Viewer {
     if (!a || !clip || !clip.duration) return null;
     // 万一クリップ長を超えた場合だけ折り返す (非ループ終端の time==duration はそのまま表示)
     const time = a.time > clip.duration ? a.time % clip.duration : a.time;
-    return { time, duration: clip.duration, running: a.isRunning() };
+    const loopState = this._loopStates?.get(a);
+    return { time, duration: clip.duration, running: a.isRunning(), paused: Boolean(this._userPaused),
+      sourceTime: loopState?.loopTimeToSourceTime?.(time) ?? time,
+      sourceTimeReliable: loopState?.sourceTimeReliable?.(time) ?? true,
+      loop: a.loop === THREE.LoopRepeat, cycles: loopState?.cycles ?? 0 };
   }
 
   // 指定秒へシーク (スクラブ用)
@@ -120,13 +149,15 @@ export class Viewer {
     const a = this.currentAction;
     const clip = a?.getClip?.();
     if (!a || !clip) return;
+    this._userPaused = false;
     a.paused = false;
     a.time = Math.max(0, Math.min(time, clip.duration - 0.001));
     this.mixer.update(0); // 即座にポーズへ反映
   }
 
   setPaused(paused) {
-    if (this.currentAction) this.currentAction.paused = paused;
+    this._userPaused = Boolean(paused);
+    if (this.currentAction) this.currentAction.paused = this._userPaused;
   }
 
   // 背景モード。'solid' は指定色の単色 (フォグ・グリッドを消してクロマキー等に使える)、
@@ -139,8 +170,8 @@ export class Viewer {
       if (this.grid) this.grid.visible = false;
     } else {
       // 標準: ダーク背景 + フォグ + グリッド表示
-      this.scene.background = new THREE.Color(0x0d1119);
-      this.scene.fog = new THREE.Fog(0x0d1119, 22, 95);
+      this.scene.background = new THREE.Color(0x060916);
+      this.scene.fog = new THREE.Fog(0x060916, 22, 95);
       if (this.grid) this.grid.visible = true;
     }
   }
@@ -198,6 +229,7 @@ export class Viewer {
   }
 
   async loadVRM(url) {
+    this.clearReaction();
     const gltf = await this.loader.loadAsync(url);
     const vrm = gltf.userData.vrm;
     if (!vrm) throw new Error('VRMとして解析できないファイルです');
@@ -244,31 +276,86 @@ export class Viewer {
    * @param {ArrayBuffer} arrayBuffer
    * @param {boolean} loop
    */
-  async playVRMA(arrayBuffer, loop = true, seekTime = 0) {
+  async playVRMA(arrayBuffer, loop, seekTime = 0, { active = () => true, fade = 0, resume = false } = {}) {
     if (!this.vrm) throw new Error('VRM が読み込まれていません');
+    const target = this.vrm;
     const gltf = await new Promise((resolve, reject) =>
       this.loader.parse(arrayBuffer, '', resolve, reject)
     );
     const vrmAnimation = gltf.userData.vrmAnimations?.[0];
     if (!vrmAnimation) throw new Error('VRMA アニメーションの解析に失敗しました');
+    if (!active() || this.vrm !== target) return null;
 
     const source = createVRMAnimationClip(vrmAnimation, this.vrm);
-    const prepared = loop ? prepareContinuousLoop(source,this.vrm.humanoid.getNormalizedBoneNode('hips')?.name) : {clip:source,state:null};
+    const loopMetadata = gltf.parser?.json?.animations?.[0]?.extras?.textToMotionLoop;
+    if (loop === undefined) loop = loopMetadata?.version === 1 && typeof loopMetadata.enabled === 'boolean' ? loopMetadata.enabled : true;
+    const baked = loopMetadata?.version === 1 && loopMetadata.prepared === true;
+    const prepared = loop ? prepareContinuousLoop(source,this.vrm.humanoid.getNormalizedBoneNode('hips')?.name,{prepared:baked,traveling:loopMetadata?.traveling}) : {clip:source,state:null};
     const clip=prepared.clip;
-    this.mixer.stopAllAction();
+    const previous = this.currentAction;
+    // Read the cursor after parsing so incoming chunks never rewind playback.
+    if (resume && previous) {
+      seekTime = previous.time;
+      const previousLoopState = this._loopStates.get(previous);
+      if (prepared.state && previousLoopState) prepared.state.cycles = previousLoopState.cycles;
+      else if (prepared.sourceTimeToLoopTime) seekTime = prepared.sourceTimeToLoopTime(seekTime);
+      else if (previousLoopState?.loopTimeToSourceTime) seekTime = previousLoopState.loopTimeToSourceTime(seekTime);
+    }
+    if (!fade || !previous) this.mixer.stopAllAction();
     const action = this.mixer.clipAction(clip);
     if(prepared.state)this._loopStates.set(action,prepared.state);
     action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
     action.clampWhenFinished = true;
     action.play();
+    // A manual pause survives incoming chunks. An exhausted LoopOnce action
+    // is also paused by three.js, but that automatic clamp must resume here.
+    if (!resume) this._userPaused = false;
+    action.paused = Boolean(this._userPaused);
+    if (fade && previous) {
+      action.crossFadeFrom(previous, fade, false);
+      (this._retiringActions ??= []).push({ action: previous, mixer: this.mixer, remaining: fade });
+    }
     if (seekTime > 0) action.time = Math.min(seekTime, Math.max(0, clip.duration - 0.001));
     this.currentAction = action;
+    if (resume && previous) {
+      // A final looping clip may crossfade from a streamed prefix. Retire the
+      // old clip only after that fade; uncaching here destroys the transition.
+      if (!fade) this.mixer.uncacheClip(previous.getClip());
+      this.mixer.update(0);
+    }
     return clip.duration;
   }
 
   stop() {
+    this._userPaused = false;
+    this.clearReaction();
     this.mixer?.stopAllAction();
     this.vrm?.humanoid?.resetNormalizedPose();
+  }
+
+  setReaction(context, { persistent = false, preview = false } = {}) {
+    if (!context) {
+      if (this._reaction) this._reaction.remaining = 0;
+      return;
+    }
+    const reaction = createReaction(context, { persistent, preview }, this._reaction);
+    if (reaction) this._reaction = reaction;
+  }
+
+  clearReaction() {
+    for (const [name, value] of Object.entries(this._reactionBase || {})) this.vrm?.expressionManager?.setValue(name, value);
+    this._reactionBase = {};
+    this._reaction = null;
+  }
+
+  getActingState() {
+    const posture = {};
+    for (const name of ['hips', 'head', 'leftUpperArm', 'rightUpperArm']) {
+      const bone = this.vrm?.humanoid?.getNormalizedBoneNode(name);
+      if (bone) posture[name] = bone.quaternion.toArray();
+    }
+    return { posture, playback: this.getPlayback(), expressions: Object.fromEntries(FACE_NAMES.map(name =>
+      [name, this.vrm?.expressionManager?.getValue(name) || 0])) };
   }
 
   // --- ウェイポイント (経由地) マーカー ---

@@ -27,6 +27,19 @@ function broadcastCodexStatus(status) {
 }
 
 function registerCodexIpc() {
+  ipcMain.handle('app:restart', event => {
+    if (!event.senderFrame?.url?.startsWith('app://bundle/')) throw new Error('アプリから再起動してください');
+    app.relaunch();
+    setTimeout(() => app.quit(), 100);
+    return { restarting: true };
+  });
+  ipcMain.handle('jev:analyze', async (event, input) => {
+    if (!event.senderFrame?.url?.startsWith('app://bundle/')) {
+      return { status: 403, code: 'jev_origin', error: 'アプリの設定画面から接続してください' };
+    }
+    const { handleJevAnalysis } = await import('../src/jevService.js');
+    return handleJevAnalysis(input);
+  });
   codexClient = new CodexClient({ cwd: app.getPath('temp') });
   codexClient.on('account-changed', async () => {
     broadcastCodexStatus(await codexClient.getStatus());
@@ -37,6 +50,36 @@ function registerCodexIpc() {
   ipcMain.handle('codex:get-usage', () => codexClient.getUsage());
   ipcMain.handle('codex:list-models', () => codexClient.listModels());
   ipcMain.handle('codex:generate-json', (_event, request) => codexClient.generateJson(request));
+  const jsonStreams = new Map();
+  ipcMain.on('codex:cancel-json-stream', (event, requestId) => {
+    if (!event.senderFrame?.url?.startsWith('app://bundle/')) return;
+    jsonStreams.get(`${event.sender.id}:${requestId}`)?.abort();
+  });
+  ipcMain.handle('codex:generate-json-stream', async (event, { requestId, request } = {}) => {
+    if (!event.senderFrame?.url?.startsWith('app://bundle/')) throw new Error('アプリから生成してください');
+    if (typeof requestId !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(requestId)) throw new Error('生成リクエストIDが不正です');
+    const id = `${event.sender.id}:${requestId}`;
+    if (jsonStreams.has(id)) throw new Error('同じ生成リクエストが実行中です');
+    const controller = new AbortController();
+    jsonStreams.set(id, controller);
+    const abort = () => controller.abort();
+    event.sender.once('destroyed', abort);
+    // Navigating the frame also invalidates the callback receiving its deltas.
+    const onNavigation = (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) abort(); };
+    event.sender.on('did-start-navigation', onNavigation);
+    try {
+      return await codexClient.generateJson(request, {
+        signal: controller.signal,
+        onDelta: delta => {
+          if (!controller.signal.aborted && !event.sender.isDestroyed()) event.sender.send('codex:json-delta', { requestId, delta });
+        },
+      });
+    } finally {
+      event.sender.removeListener('destroyed', abort);
+      event.sender.removeListener('did-start-navigation', onNavigation);
+      jsonStreams.delete(id);
+    }
+  });
   ipcMain.handle('codex:generate-motion', async (_event, request) => {
     try {
       return await codexClient.generateMotion(request);

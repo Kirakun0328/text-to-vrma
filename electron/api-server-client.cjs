@@ -68,6 +68,11 @@ class LocalApiServer {
    * @param {string} [config.openaiBaseUrl]
    * @param {string} [config.openaiModel]
    * @param {string} [config.claudeModel]
+   * @param {string} [config.jevApiKey]
+   * @param {boolean} [config.jevEnabled]
+   * @param {string} [config.jevModel]
+   * @param {number} [config.jevTimeoutMs]
+   * @param {number} [config.jevConfidenceThreshold]
    */
   async start(config = {}) {
     if (this.server) return this.getStatus();
@@ -100,6 +105,11 @@ class LocalApiServer {
       apiToken: this.getToken(),
       ...(config.openaiModel ? { defaultModel: config.openaiModel } : {}),
       ...(config.claudeModel ? { defaultClaudeModel: config.claudeModel } : {}),
+      jevApiKey: config.jevApiKey || '',
+      jevEnabled: Boolean(config.jevEnabled),
+      ...(config.jevModel ? { jevModel: config.jevModel } : {}),
+      ...(config.jevTimeoutMs ? { jevTimeoutMs: config.jevTimeoutMs } : {}),
+      ...(config.jevConfidenceThreshold ? { jevConfidenceThreshold: config.jevConfidenceThreshold } : {}),
     });
 
     try {

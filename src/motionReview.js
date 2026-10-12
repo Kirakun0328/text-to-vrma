@@ -2,6 +2,7 @@ import { tr, locale } from './i18n.js';
 import { callOpenAI, SYSTEM_PROMPT, validateSpec } from './llm.js';
 import { SKELETON } from './vrmaBuilder.js';
 import { rescaleSpec } from './specMerge.js';
+import { formatMotionSemanticContext, toMotionSemanticContext } from './jevMotionContext.js';
 
 const xyz = (p) => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);
 
@@ -104,10 +105,12 @@ export function measureKinematics(samples) {
 }
 
 export async function generateReviewedMotion(text, apiKey, model, {
-  skeleton, inspect, duration, loop, onProgress = () => {}, onDraft, speed = 'fast', request = callOpenAI,
+  skeleton, inspect, duration, loop, motionContext, onProgress = () => {}, onDraft, speed = 'fast', request = callOpenAI,
 }) {
+  const semanticContext = toMotionSemanticContext(motionContext);
+  const semanticEvidence = formatMotionSemanticContext(semanticContext);
   const originalRequest=request;
-  request=(messages,...args)=>originalRequest(messages.map(m=>m.role==='system'?{...m,content:m.content+`\nWrite human-readable explanations in ${{ja:'Japanese',en:'English',zh:'Simplified Chinese',ko:'Korean'}[locale]}, overriding earlier language instructions. Keep JSON field names unchanged.`}:m),...args);
+  request=(messages,...args)=>originalRequest(messages.map(m=>m.role==='system'?{...m,content:m.content+`\nWrite human-readable explanations in ${{ja:'Japanese',en:'English',zh:'Simplified Chinese',ko:'Korean'}[locale]}, overriding earlier language instructions. Keep JSON field names unchanged.`+(semanticEvidence?'\n'+semanticEvidence:'')}:m),...args);
   if (typeof inspect !== 'function') throw new Error(tr('画像レビューにはVRMビューアが必要です'));
   const effort = { fast: 'low', balanced: 'medium', quality: 'high' }[speed];
   if (!effort) throw new Error(tr('速度設定が不正です'));
@@ -144,6 +147,8 @@ phasesは時間全体を連続して覆う。各説明は簡潔に。最大8フ�
     validateSpec(spec);
     rescaleSpec(spec, plan.duration);
     if (loop !== undefined) spec.loop = loop;
+    if (semanticContext) spec.jevContext = structuredClone(semanticContext);
+    else delete spec.jevContext;
     return spec;
   };
   onProgress(tr('2/4 骨格と到達位置に合わせてポーズを生成中…'));

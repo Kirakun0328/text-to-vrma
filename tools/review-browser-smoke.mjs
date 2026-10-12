@@ -21,7 +21,7 @@ try {
   await new Promise(resolve=>setTimeout(resolve,1500));
   if (process.argv.includes('--live') || process.argv.includes('--live-ardy')) {
     const ardyLive = process.argv.includes('--live-ardy');
-    const liveModel = process.env.REVIEW_MODEL || 'gpt-5.6-sol';
+    const liveModel = process.env.REVIEW_MODEL || 'gpt-6.1-sol';
     // Explicit opt-in: consumes Codex subscription usage, never calls the API route.
     const started = await call('Runtime.evaluate', { awaitPromise: true, expression: `(async()=>{
       const auth=document.getElementById('authMode');auth.value=${JSON.stringify(ardyLive ? 'ardy' : 'codex')};auth.dispatchEvent(new Event('change'));

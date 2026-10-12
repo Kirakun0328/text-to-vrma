@@ -57,3 +57,43 @@ test('fast review forwards low effort and publishes draft before image correctio
   });
   assert.equal(result.speed,'fast');assert.ok(result.timing.totalSeconds>=result.timing.draftSeconds);
 });
+
+test('image review retains sanitized Jev evidence through planning, draft, correction, and rejected fallback', async () => {
+  const { generateReviewedMotion } = await import('../src/motionReview.js');
+  const { toMotionSemanticContext } = await import('../src/jevMotionContext.js');
+  const motionContext = { emotion: 'affection', confidence: .15, confidences: { emotion: .9 },
+    affect: { happy: { value: .7, confidence: .85 }, relaxed: { value: .3, confidence: .8 } },
+    reaction: 'nod', apiKey: 'secret-do-not-forward' };
+  const safe = toMotionSemanticContext(motionContext);
+  const calls = []; let measured = 0, published;
+  const result = await generateReviewedMotion('自由な演技', '', 'mock', {
+    motionContext, skeleton: {}, onDraft: draft => { published = draft; },
+    request: async messages => {
+      calls.push(messages);
+      const serialized = JSON.stringify(messages);
+      assert.match(serialized, /original user request is authoritative/);
+      assert.match(serialized, /affection/);
+      assert.match(serialized, /happy/);
+      assert.doesNotMatch(serialized, /secret-do-not-forward|"reaction"/);
+      return JSON.stringify(calls.length === 1 ? plan : { ...spec, jevContext: { apiKey: 'injected' } });
+    },
+    inspect: async () => ({ images: [], keyPositions: [], metrics: { plannedContactSlideMps: measured++ ? 1 : 0 } }),
+  });
+  assert.equal(calls.length, 3);
+  assert.equal(result.accepted, false);
+  for (const output of [published, result.draft, result.candidate, result.spec]) assert.deepEqual(output.jevContext, safe);
+  assert.equal(motionContext.apiKey, 'secret-do-not-forward');
+});
+
+test('image review does not let the model invent Jev analysis when no context was supplied', async () => {
+  const { generateReviewedMotion } = await import('../src/motionReview.js');
+  let calls = 0;
+  const result = await generateReviewedMotion('nod', '', 'mock', {
+    skeleton: {}, request: async messages => {
+      assert.doesNotMatch(JSON.stringify(messages), /Optional Jev semantic evidence/);
+      return JSON.stringify(++calls === 1 ? plan : { ...spec, jevContext: { emotion: 'joy', confidence: 1 } });
+    }, inspect: async () => ({ images: [], keyPositions: [], metrics: {} }),
+  });
+  assert.equal(result.spec.jevContext, undefined);
+  assert.equal(result.draft.jevContext, undefined);
+});

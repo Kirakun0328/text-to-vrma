@@ -39,6 +39,19 @@
     #panel > * { flex-shrink: 0; }
     header.app-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .app-head { flex-wrap: nowrap; }
+    .header-settings { display:flex; align-items:center; gap:8px; margin-left:auto; }
+    #settingsBtn { width:auto; flex:none; padding:8px 10px; white-space:nowrap; }
+    #settingsDialog { width:min(680px, calc(100vw - 24px)); max-height:calc(100dvh - 32px); box-sizing:border-box; margin:auto; padding:20px; font-size:14px; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:14px; overflow-y:auto; }
+    #settingsDialog::backdrop { background:rgba(0,0,0,.65); }
+    .settings-dialog-head { display:flex; align-items:center; justify-content:space-between; gap:16px; position:sticky; top:-20px; padding:10px 0; background:var(--panel); z-index:1; }
+    .settings-dialog-head button { width:auto; }
+    #settingsDialog .card { margin-top:14px; }
+    #settingsDialog h2, #settingsDialog h3 { margin:0; }
+    #settingsDialog h3 { font-size:15px; margin-bottom:8px; }
+    #settingsDialog .sub { line-height:1.65; }
+    #settingsDialog label { line-height:1.6; }
+    #settingsDialog input, #settingsDialog select, #settingsDialog button { font-size:14px; }
+    @media (max-width:480px) { header.app-head { flex-wrap:wrap; } .header-settings { margin-left:0; } }
     .brand { font-size: 19px; font-weight: 700; letter-spacing: 0.01em; white-space: nowrap; }
     .brand .accent { color: var(--accent); }
     select.lang {
@@ -89,7 +102,6 @@
     #correctionSettings .correction-option:has(input:disabled) { opacity:.6; cursor:default; }
     .option-copy { min-width:0; display:flex; flex-direction:column; gap:5px; line-height:1.5; }
     #correctionHelp { padding-top:4px; border-top:0; }
-    #ardySmoothRow { padding:8px 0; }
     #panel input:focus-visible, #panel select:focus-visible, #panel textarea:focus-visible, summary:focus-visible { outline:2px solid #9a85ef; outline-offset:2px; }
     input[type="password"], input[type="text"], input[type="number"], select, textarea {
       width: 100%; background: var(--card2); color: var(--text);
@@ -192,6 +204,8 @@
     }
     #status.ok { color: var(--accent); }
     #status.err { color: #ff8484; }
+    #statusAction { margin-top: -4px; }
+    #statusAction button { width: 100%; }
     #reviewModeNote { text-wrap:pretty; }
     #playbackCard { gap:12px; }
     #playbackTitle { color:var(--accent); font-size:15px; }
@@ -358,20 +372,29 @@
       #panel .brand { font-size:17px; }
       #panel select.lang { font-size:12px; }
     }
+    .motion-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .motion-options .setting-row { flex-direction:column; align-items:stretch; gap:6px; min-width:0; }
+    .motion-options .setting-row > span { flex-shrink:1; }
+    .motion-options .setting-row #ardyDuration, .motion-options .setting-row select { width:100%; max-width:none; flex:none; box-sizing:border-box; }
+    #waypointRow { margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
     .hidden { display: none !important; }
   </style>
+  <link rel="stylesheet" href="/src/studio.css" />
 </head>
 <body>
   <div id="app">
     <div id="panel">
       <header class="app-head">
-        <div class="brand">Text <span class="accent">To</span> VRMA</div>
+        <div class="brand">Text To <span class="accent">VRMA</span></div>
+        <div class="header-settings">
+        <button id="settingsBtn" class="btn-soft" aria-haspopup="dialog" data-i18n="設定">設定</button>
         <select id="langSelect" class="lang" title="Language">
           <option value="ja">🌐 日本語</option>
           <option value="en">🌐 English</option>
           <option value="zh">🌐 中文</option>
           <option value="ko">🌐 한국어</option>
         </select>
+        </div>
       </header>
       <p class="tagline" data-i18n="tagline">テキストからVRMアニメーション (.vrma) を生成して、その場でキャラクターを動かします。</p>
 
@@ -389,141 +412,20 @@
         <input type="file" id="vrmFile" accept=".vrm" style="display:none" />
       </section>
 
-      <!-- 2. 生成エンジン -->
-      <section class="card">
-        <div class="card-head">
-          <span class="badge b2">2</span>
-          <div><div class="card-title" data-i18n="sec.engine">⚙️ 生成エンジン</div>
-          <div class="card-sub" data-i18n="sec.engineSub">モーション生成に使用するエンジンを選択します。</div></div>
-        </div>
-        <div class="engine-top">
-          <select id="authMode">
-            <option value="ardy" data-i18n="engine.ardy">ARDYローカルエンジン</option>
-            <option value="codex" data-i18n="engine.codex">Codexサブスクリプション</option>
-            <option value="api-key" data-i18n="engine.apiKey">OpenAI API</option>
-            <option value="claude" data-i18n="engine.claude">Claude API</option>
-          </select>
-        </div>
-        <div id="apiSettingsHome">
-          <div id="apiSettings" class="auth-box">
-            <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" data-i18n-placeholder="apiKey.ph" />
-            <select id="apiModelSelect">
-              <option value="gpt-6-astra" data-i18n="model.astra">GPT-6 Astra (最高精度)</option>
-              <option value="gpt-5.6-sol" data-i18n="model.best">gpt-5.6-sol (高精度)</option>
-              <option value="gpt-5.6-terra" data-i18n="model.balanced">gpt-5.6-terra (バランス)</option>
-              <option value="gpt-5.6-luna" data-i18n="model.low">gpt-5.6-luna (低コスト)</option>
-            </select>
-            <details class="ardy-fold">
-              <summary data-i18n="api.customHead">🔌 OpenAI互換プロバイダを使う (任意)</summary>
-              <p class="sub" style="margin:6px 0" data-i18n="api.customNote">OpenRouter / DeepSeek / Ollama 等のOpenAI互換APIを使う場合に設定します。空欄なら公式OpenAIを使います。</p>
-              <label class="field-label" data-i18n="api.baseUrl">APIベースURL</label>
-              <input type="text" id="apiBaseUrl" placeholder="https://api.openai.com/v1" />
-              <label class="field-label" style="margin-top:6px" data-i18n="api.customModel">モデル名 (カスタム)</label>
-              <input type="text" id="apiCustomModel" placeholder="例: deepseek-chat / meta-llama/llama-3.1-8b-instruct" data-i18n-placeholder="api.customModelPh" />
-            </details>
-          </div>
-        </div>
-        <div id="claudeSettingsHome"><div id="claudeSettings" class="auth-box hidden">
-          <input type="password" id="claudeApiKey" placeholder="Claude APIキー (sk-ant-...)" data-i18n-placeholder="claudeKey.ph" />
-          <select id="claudeModelSelect">
-            <option value="claude-opus-5" data-i18n="model.claudeOpus">claude-opus-5 (最高精度)</option>
-            <option value="claude-sonnet-5" data-i18n="model.claudeSonnet">claude-sonnet-5 (バランス)</option>
-            <option value="claude-haiku-4-5" data-i18n="model.claudeHaiku">claude-haiku-4-5 (低コスト)</option>
-          </select>
-        </div>
-        </div>
-        <div id="codexSettingsHome"><div id="codexSettings" class="auth-box hidden">
-          <div id="codexAuthState" class="auth-state" data-i18n="codex.checking">Codex CLIを確認中...</div>
-          <div id="codexSetupHelp" class="sub hidden">
-            <p data-i18n="Codexが未導入、または古い場合はPC側でインストール・更新してください。アプリには同梱していません。">Codexが未導入、または古い場合はPC側でインストール・更新してください。アプリには同梱していません。</p>
-            <details style="margin-top:6px"><summary data-i18n="インストール・更新の手順">インストール・更新の手順</summary>
-              <p data-i18n="Node.jsのnpmが使えるターミナルで次を実行し、アプリを再起動してください。動作確認済みの0.153.3を導入します。">Node.jsのnpmが使えるターミナルで次を実行し、アプリを再起動してください。動作確認済みの0.153.3を導入します。</p>
-              <code style="display:block;overflow-wrap:anywhere;margin-top:6px;user-select:all">npm install -g @openai/codex@0.153.3</code>
-            </details>
-          </div>
-          <select id="codexModelSelect" disabled>
-            <option value="" data-i18n="codex.afterLogin">ログイン後にモデルを取得します</option>
-          </select>
-          <div class="auth-actions">
-            <button id="codexLoginBtn" class="btn-blue" data-i18n="btn.codexLogin">ChatGPTでログイン</button>
-            <button id="codexLogoutBtn" class="btn-soft" disabled data-i18n="btn.codexLogout">ログアウト</button>
-          </div>
-          <div id="codexUsage" style="margin-top:12px;font-size:12px">
-            <div class="auth-actions"><strong data-i18n="Codexの使用量">Codexの使用量</strong><button id="codexUsageRefresh" class="btn-soft" disabled data-i18n="更新">更新</button></div>
-            <div id="codexUsageRows" aria-live="polite"></div>
-            <p id="codexUsageUpdated" class="sub" data-i18n="ChatGPTでログインすると表示します。">ChatGPTでログインすると表示します。</p>
-            <p class="sub" data-i18n="同じアカウントのCodex全体の利用枠です。このアプリ以外の利用も含みます。表示中は約1分ごと、生成後にも更新します。">同じアカウントのCodex全体の利用枠です。このアプリ以外の利用も含みます。表示中は約1分ごと、生成後にも更新します。</p>
-          </div>
-        </div>
-        </div>
-        <div id="ardySettings" class="auth-box hidden">
-          <div class="engine-top">
-          <div id="ardyState" class="auth-state" style="flex:1" data-i18n="ardy.unknown">エンジン未確認</div>
-          </div>
-          <div class="auth-actions">
-            <button id="ardyStartBtn" class="btn-blue hidden" data-i18n="btn.engineStart">エンジンを起動</button>
-            <button id="ardySetupBtn" class="btn-soft hidden" data-i18n="btn.engineSetup">⬇ エンジンをセットアップ (初回のみ)</button>
-          </div>
-          <details class="ardy-fold">
-            <summary class="section-sub ai-settings-toggle"><span data-i18n="ardy.gptHead">🧠 モーション生成に使うAI</span><span class="toggle-hint" data-i18n="設定を開く">設定を開く</span><span class="toggle-arrow" aria-hidden="true">⌄</span></summary>
-            <p class="sub" style="margin:6px 0" data-i18n="ardy.gptNote">既定はARDYのみです。必要に応じてAIによる動作の計画・修正を追加できます。</p>
-            <select id="ardyPlanner">
-              <option value="none" data-i18n="ARDYのみ（既定）">ARDYのみ（既定）</option>
-              <option value="codex" data-i18n="Codexサブスクリプション">Codexサブスクリプション</option>
-              <option value="openai">OpenAI API</option>
-              <option value="claude">Claude API</option>
-            </select>
-            <p id="ardyLocalOnlyNote" class="sub hidden" data-i18n="Codexの利用枠・API料金を使わず、ローカルで翻訳とモーション生成を行います。AIによる計画・修正は利用しません。">Codexの利用枠・API料金を使わず、ローカルで翻訳とモーション生成を行います。AIによる計画・修正は利用しません。</p>
-            <div id="ardyGptSlot"></div>
-          </details>
-          <label class="inline setting-row"><span data-i18n="生成候補">生成候補</span>
-            <select id="ardyCandidateCount">
-              <option value="1" data-i18n="通常（1候補）">通常（1候補）</option>
-              <option value="3" data-i18n="比較して選ぶ（3候補）">比較して選ぶ（3候補）</option>
-            </select>
-          </label>
-          <details id="candidateHelp" class="ardy-fold"><summary data-i18n="候補比較について">候補比較について</summary><p class="sub" data-i18n="ARDYで3回生成し、アバター上の足滑り・沈み込みを比較します。動きが大幅に減った候補は自動で選びません。追加のAI呼び出しはなく、ARDYの生成時間は増えます。">ARDYで3回生成し、アバター上の足滑り・沈み込みを比較します。動きが大幅に減った候補は自動で選びません。追加のAI呼び出しはなく、ARDYの生成時間は増えます。</p></details>
-        </div>
-        <label id="reviewSpeedRow" class="inline setting-row hidden"><span data-i18n="生成品質">生成品質</span>
-          <select id="reviewSpeed">
-            <option value="balanced" selected data-i18n="標準">標準</option>
-            <option value="fast" data-i18n="速度優先">速度優先</option>
-            <option value="quality" data-i18n="品質優先">品質優先</option>
-          </select>
-        </label>
-        <p id="reviewModeNote" class="sub hidden"></p>
-        <details id="correctionSettings" class="settings-fold">
-          <summary><span data-i18n="修正設定">修正設定</span><span class="settings-arrow" style="margin-left:auto" aria-hidden="true">⌄</span></summary>
-          <div class="settings-content">
-        <label class="check correction-option" title="生成した動きをAIが確認し、必要に応じて修正します。追加の時間とAIの利用枠を使います。" data-i18n-title="refine.title">
-          <input type="checkbox" id="refineCheck" />
-          <span class="option-copy"><span data-i18n="refine.label">生成後に自動で修正する</span><span class="sub" data-i18n="OFFでも、生成後に手動で修正できます。">OFFでも、生成後に手動で修正できます。</span></span>
-        </label>
-        <label id="reviewImageOption" class="check correction-option">
-          <input type="checkbox" id="visualReviewCheck" />
-          <span class="option-copy"><span data-i18n="修正に画像も使う">修正に画像も使う</span><span class="sub" data-i18n="手動で修正するときにも使います。">手動で修正するときにも使います。</span><span id="visualReviewNotice" class="sub hidden"></span></span>
-        </label>
-        <details id="correctionHelp">
-          <summary data-i18n="修正の使い方">修正の使い方</summary>
-          <p class="sub" data-i18n="自動修正はOFFで始まります。ONにした場合だけ、生成後にAIが動きを確認して修正します。">自動修正はOFFで始まります。ONにした場合だけ、生成後にAIが動きを確認して修正します。</p>
-          <p class="sub" data-i18n="画像も使うをONにすると、見た目も確認します。撮影は自動なので、画像の用意は不要です。"><strong>画像も使う</strong>をONにすると、見た目も確認します。撮影は自動なので、画像の用意は不要です。</p>
-          <p class="sub" data-i18n="ARDYでは、まず修正が必要かを確認します。不要と判断したら元の動きを採用し、理由を比較画面に表示します。">ARDYでは、まず修正が必要かを確認します。不要と判断したら元の動きを採用し、理由を比較画面に表示します。</p>
-          <p class="sub" data-i18n="「この動きを修正」は自動の見直しがOFFでも使えます。長い動きは区間に分けて修正します。長いほど処理時間とAIの使用量が増えます。Codexはサブスクの利用枠、APIは各サービスのAPI料金を使います。AIを「使わない」にすると修正は利用できません。">「この動きを修正」は自動の見直しがOFFでも使えます。長い動きは区間に分けて修正します。長いほど処理時間とAIの使用量が増えます。Codexはサブスクの利用枠、APIは各サービスのAPI料金を使います。AIを「使わない」にすると修正は利用できません。</p>
-        </details>
-
-
-          </div>
-        </details>
-      </section>
-
       <!-- 3. テキスト指示 -->
       <section class="card">
-        <div class="card-head">
-          <span class="badge b3">3</span>
+        <div class="card-head motion-prompt-head">
+          <span class="badge b3">2</span>
           <div><div class="card-title" data-i18n="sec.text">💬 モーションをテキストで指示</div>
           <div class="card-sub" data-i18n="sec.textSub">どんな動きをするか、自由に指示してください。</div></div>
+          <button id="promptIdeaBtn" type="button" class="btn-soft" data-i18n="✨ プロンプトを自動生成" aria-describedby="promptIdeaStatus">✨ プロンプトを自動生成</button>
         </div>
-        <textarea id="textInput" placeholder="例: その場で歩く&#10;例: 喜んでジャンプする&#10;例: 手を振る&#10;例: 悲しそうにうつむく" data-i18n-placeholder="input.ph" data-i18n-aria-label="sec.text"></textarea>
+        <textarea id="textInput" placeholder="動かしたい内容を自由に入力してください" data-i18n-placeholder="input.ph" data-i18n-aria-label="sec.text"></textarea>
+        <div class="motion-prompt-footer">
+          <p class="sub motion-shortcut" data-i18n="input.shortcutCompact" data-i18n-title="input.shortcut">Ctrl + Enter で生成 · Shift 追加で修正</p>
+          <p id="promptIdeaStatus" class="sub" role="status" aria-live="polite"></p>
+        </div>
+        <div class="motion-options">
         <label class="inline setting-row" title="生成するモーションの長さ (秒)。空欄なら内容から自動判定します (全エンジン共通)。" data-i18n-title="ardy.durTitle">
           <span data-i18n="ardy.durLabel">⏱ 長さ (秒)</span>
           <input type="number" id="ardyDuration" min="0.1" step="0.1" placeholder="自動" data-i18n-placeholder="ardy.durAuto" />
@@ -536,35 +438,24 @@
             <option value="off" data-i18n="loop.off">1回だけ再生</option>
           </select>
         </label>
-        <details id="motionDetails" class="settings-fold">
-          <summary><span data-i18n="動きの詳細設定">動きの詳細設定</span><span class="settings-arrow" style="margin-left:auto" aria-hidden="true">⌄</span></summary>
-          <div class="settings-content">
-            <div id="ardySmoothRow">
-              <label class="check">
-                <input id="ardySmoothCheck" type="checkbox" checked />
-                <span data-i18n="全身の動きをなめらかに補正">全身の動きをなめらかに補正</span>
-              </label>
-              <p class="sub" style="margin-top:6px" data-i18n="標準でON。全身の急な角度変化をやわらげます。足の接地付近では補正を抑え、移動経路を保ちます。">標準でON。全身の急な角度変化をやわらげます。足の接地付近では補正を抑え、移動経路を保ちます。</p>
-            </div>
+
+        </div>
             <div id="waypointRow" class="hidden">
               <label class="check" title="ONにすると3Dビューの床をクリックして経由地を置けます。右クリックで1つ取り消し。" data-i18n-title="wp.labelTitle">
                 <input type="checkbox" id="waypointCheck" /> <span data-i18n="wp.label">📍 経由地モード (床クリックで配置)</span>
               </label>
               <button id="waypointClearBtn" class="btn-soft hidden" style="margin-top:8px;width:100%" data-i18n="wp.clear">経由地をクリア</button>
             </div>
-            <label class="check" title="長さが空欄ならON、秒数を入力するとOFFになります。手動でONにすると、動きに合わせて長さを調整します。" data-i18n-title="ardy.durAutoFitTitle">
-              <input type="checkbox" id="autoLengthCheck" checked /> <span data-i18n="ardy.durAutoFit">長さを自動補正</span>
-            </label>
-            <p class="sub" data-i18n="ardy.durHint">短い秒数に多くの動作を詰めると不自然になることがあります。秒数を増やすか「自動補正」をONにしてください。</p>
-          </div>
-        </details>
+
       </section>
 
       <!-- 生成ボタン -->
+
       <button id="generateBtn">
         <span data-i18n="btn.generate">▶ モーション生成 &amp; 再生</span>
       </button>
       <div id="status" class="hidden" role="status" aria-live="polite"></div>
+      <div id="statusAction" class="hidden"><button id="statusActionBtn" class="btn-blue"></button></div>
       <div id="genProgress" class="hidden">
         <div class="gen-progress-track"><div id="genProgressBar" class="gen-progress-bar"></div></div>
         <p class="sub" id="genProgressText"></p>
@@ -578,6 +469,7 @@
           <summary><span data-i18n="生成の詳細">生成の詳細</span><span class="settings-arrow" style="margin-left:auto" aria-hidden="true">⌄</span></summary>
           <p id="playbackPrompt" class="sub"></p>
           <p id="playbackTime" class="sub"></p>
+          <p id="jevContextInfo" class="sub hidden"></p>
         </details>
       </div>
       <!-- 4. 書き出し・共有 -->
@@ -588,7 +480,7 @@
       </details>
       <section class="card" id="outputSection">
         <div class="card-head">
-          <span class="badge b4">4</span>
+          <span class="badge b4">3</span>
           <div><div class="card-title" data-i18n="sec.output">🔗 書き出し・共有</div>
           <div class="card-sub" data-i18n="sec.outputSub">生成したモーションをファイルとして書き出します。</div></div>
         </div>
@@ -611,30 +503,6 @@
         </div>
         <div id="history"><p class="sub" data-i18n="history.empty">まだ生成したモーションはありません。</p></div>
       </section>
-
-      <details class="ardy-fold" id="advancedFold">
-        <summary data-i18n="adv">詳細設定</summary>
-        <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="adv.ardyUrl">ARDYエンジンの接続先 (通常は変更不要)</label>
-        <input type="text" id="ardyUrl" value="http://127.0.0.1:2337" title="ARDYエンジンサーバーのURL" />
-
-        <div id="localApiRow" class="hidden">
-          <label class="sub" style="display:block;margin:14px 0 3px" data-i18n="adv.localApi">ローカルHTTP API (他のアプリから呼び出す)</label>
-          <label class="check" title="他のアプリやスクリプトからモーション生成を呼び出せるようにします。既定ではオフで、有効にしたときだけ127.0.0.1でポートを開きます。" data-i18n-title="localApi.title">
-            <input type="checkbox" id="localApiEnable" />
-            <span data-i18n="localApi.label">🔌 ローカルAPIを有効にする</span>
-          </label>
-          <input type="number" id="localApiPort" value="8787" min="1" max="65535" title="待ち受けポート" data-i18n-title="localApi.portTitle" />
-          <div id="localApiState" class="auth-state" data-i18n="localApi.stopped">停止中</div>
-          <div id="localApiTokenRow" class="hidden">
-            <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="localApi.token">アクセストークン (Authorization: Bearer に指定)</label>
-            <input type="text" id="localApiToken" readonly />
-            <div class="row">
-              <button id="localApiCopyBtn" data-i18n="localApi.copy">📋 コピー</button>
-              <button id="localApiRegenBtn" data-i18n="localApi.regen">🔄 再生成</button>
-            </div>
-          </div>
-        </div>
-      </details>
 
       <div id="appFooter">
         <span class="llama">Built with Meta Llama 3</span><br />
@@ -698,11 +566,191 @@
             <option value="default" data-i18n="bg.default">標準</option>
             <option value="solid" data-i18n="bg.solid">単色 (色を指定)</option>
           </select>
-          <input type="color" id="bgColor" value="#00b140" title="背景色を選ぶ" />
+          <input type="color" id="bgColor" value="#00b140" title="背景色を選ぶ" data-i18n-title="背景色を選ぶ" />
         </div>
       </div>
     </div>
   </div>
+
+  <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+    <div class="settings-dialog-head"><h2 id="settingsTitle" data-i18n="設定">設定</h2><button id="settingsCloseBtn" class="btn-soft" data-i18n="閉じる">閉じる</button></div>
+    <p class="sub" data-i18n="設定はこの端末に自動保存されます。">設定はこの端末に自動保存されます。</p>
+
+
+<section class="card" id="apiCredentialsSettings" aria-labelledby="apiCredentialsTitle">
+<h3 id="apiCredentialsTitle" data-i18n="APIキー・アカウント">APIキー・アカウント</h3>
+        <div id="apiSettingsHome">
+          <div id="apiSettings" class="auth-box"><h3>OpenAI API</h3>
+            <input type="password" id="apiKey" placeholder="OpenAI APIキー (sk-...)" data-i18n-placeholder="apiKey.ph" />
+            <select id="apiModelSelect">
+              <option value="gpt-6-astra" data-i18n="model.astra">GPT-6 Astra (最高精度)</option>
+              <option value="gpt-6.1-sol" data-i18n="model.best">gpt-6.1-sol (高精度)</option>
+              <option value="gpt-6-luna" data-i18n="model.low">gpt-6-luna (低コスト)</option>
+            </select>
+            <details class="ardy-fold">
+              <summary data-i18n="api.customHead">🔌 OpenAI互換プロバイダを使う (任意)</summary>
+              <p class="sub" style="margin:6px 0" data-i18n="api.customNote">OpenRouter / DeepSeek / Ollama 等のOpenAI互換APIを使う場合に設定します。空欄なら公式OpenAIを使います。</p>
+              <label class="field-label" data-i18n="api.baseUrl">APIベースURL</label>
+              <input type="text" id="apiBaseUrl" placeholder="https://api.openai.com/v1" />
+              <label class="field-label" style="margin-top:6px" data-i18n="api.customModel">モデル名 (カスタム)</label>
+              <input type="text" id="apiCustomModel" placeholder="例: deepseek-chat / meta-llama/llama-3.1-8b-instruct" data-i18n-placeholder="api.customModelPh" />
+            </details>
+          </div>
+        </div>
+        <div id="claudeSettingsHome"><div id="claudeSettings" class="auth-box"><h3>Claude API</h3>
+          <input type="password" id="claudeApiKey" placeholder="Claude APIキー (sk-ant-...)" data-i18n-placeholder="claudeKey.ph" />
+          <select id="claudeModelSelect">
+            <option value="claude-fable-5-1" data-i18n="model.claudeFable51">claude-fable-5-1 (最上位・高コスト)</option>
+            <option value="claude-opus-5-5" data-i18n="model.claudeOpus55">claude-opus-5-5 (最高精度)</option>
+            <option value="claude-sonnet-5-5" data-i18n="model.claudeSonnet55">claude-sonnet-5-5 (バランス)</option>
+            <option value="claude-haiku-5-5" data-i18n="model.claudeHaiku55">claude-haiku-5-5 (低コスト)</option>
+          </select>
+        </div>
+        </div>
+        <div id="jevRow" class="auth-box">
+          <h3>Jev API</h3>
+          <label for="jevApiKey" data-i18n="TypeSafe AI APIキー">TypeSafe AI APIキー</label>
+          <input type="password" id="jevApiKey" placeholder="TypeSafe AI APIキー" data-i18n-placeholder="TypeSafe AI APIキー" autocomplete="off" />
+          <label for="jevModel" data-i18n="Jevモデル">Jevモデル</label>
+          <select id="jevModel">
+            <option value="jev-latest" data-i18n="jev-latest (最新の安定版・既定)">jev-latest (最新の安定版・既定)</option>
+            <option value="jev-preview" data-i18n="jev-preview (プレビュー版)">jev-preview (プレビュー版)</option>
+            <option value="jev-1.13.0" data-i18n="jev-1.13.0 (バージョン固定)">jev-1.13.0 (バージョン固定)</option>
+          </select>
+          <label class="check" title="Jevは英語が主な対象のため、日本語はARDYエンジンの翻訳機能で英訳してから解析します。ARDYが起動していなければ日本語のまま送ります。" data-i18n-title="Jevは英語が主な対象のため、日本語はARDYエンジンの翻訳機能で英訳してから解析します。ARDYが起動していなければ日本語のまま送ります。">
+            <input type="checkbox" id="jevEnglish" checked />
+            <span data-i18n="Jevへは英訳して送る">Jevへは英訳して送る</span>
+          </label>
+        </div>
+        <div id="codexSettingsHome"><div id="codexSettings" class="auth-box"><h3>Codex</h3>
+          <div id="codexAuthState" class="auth-state" data-i18n="codex.checking">Codex CLIを確認中...</div>
+          <div id="codexSetupHelp" class="sub hidden">
+            <p data-i18n="Codexが未導入、または古い場合はPC側でインストール・更新してください。アプリには同梱していません。">Codexが未導入、または古い場合はPC側でインストール・更新してください。アプリには同梱していません。</p>
+            <details style="margin-top:6px"><summary data-i18n="インストール・更新の手順">インストール・更新の手順</summary>
+              <p data-i18n="Node.jsのnpmが使えるターミナルで次を実行し、アプリを再起動してください。動作確認済みの0.153.3を導入します。">Node.jsのnpmが使えるターミナルで次を実行し、アプリを再起動してください。動作確認済みの0.153.3を導入します。</p>
+              <code style="display:block;overflow-wrap:anywhere;margin-top:6px;user-select:all">npm install -g @openai/codex@0.153.3</code>
+            </details>
+          </div>
+          <select id="codexModelSelect" disabled>
+            <option value="" data-i18n="codex.afterLogin">ログイン後にモデルを取得します</option>
+          </select>
+          <div class="auth-actions">
+            <button id="codexLoginBtn" class="btn-blue" data-i18n="btn.codexLogin">ChatGPTでログイン</button>
+            <button id="codexLogoutBtn" class="btn-soft" disabled data-i18n="btn.codexLogout">ログアウト</button>
+          </div>
+          <div id="codexUsage" style="margin-top:12px;font-size:12px">
+            <div class="auth-actions"><strong data-i18n="Codexの使用量">Codexの使用量</strong><button id="codexUsageRefresh" class="btn-soft" disabled data-i18n="更新">更新</button></div>
+            <div id="codexUsageRows" aria-live="polite"></div>
+            <p id="codexUsageUpdated" class="sub" data-i18n="ChatGPTでログインすると表示します。">ChatGPTでログインすると表示します。</p>
+            <p class="sub" data-i18n="同じアカウントのCodex全体の利用枠です。このアプリ以外の利用も含みます。表示中は約1分ごと、生成後にも更新します。">同じアカウントのCodex全体の利用枠です。このアプリ以外の利用も含みます。表示中は約1分ごと、生成後にも更新します。</p>
+          </div>
+        </div>
+        </div>
+</section>
+      <section class="card" id="connectionSettings">
+        <h3 data-i18n="接続設定">接続設定</h3>
+        <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="adv.ardyUrl">ARDYエンジンの接続先 (通常は変更不要)</label>
+          <input type="text" id="ardyUrl" value="http://127.0.0.1:2337" title="ARDYエンジンサーバーのURL" data-i18n-title="ARDYエンジンサーバーのURL" />
+
+                  <button id="appRestartBtn" class="btn-soft" data-i18n="アプリ／接続サーバーを再起動">アプリ／接続サーバーを再起動</button><p class="sub" data-i18n="保存済みの設定は保持されます。再起動すると現在の生成・再生は終了します。">保存済みの設定は保持されます。再起動すると現在の生成・再生は終了します。</p><p id="appRestartStatus" class="sub" role="status" aria-live="polite"></p>
+        <div id="localApiRow" class="hidden">
+          <label class="sub" style="display:block;margin:14px 0 3px" data-i18n="adv.localApi">ローカルHTTP API (他のアプリから呼び出す)</label>
+          <label class="check" title="他のアプリやスクリプトからモーション生成を呼び出せるようにします。既定ではオフで、有効にしたときだけ127.0.0.1でポートを開きます。" data-i18n-title="localApi.title">
+            <input type="checkbox" id="localApiEnable" />
+            <span data-i18n="localApi.label">🔌 ローカルAPIを有効にする</span>
+          </label>
+          <input type="number" id="localApiPort" value="8787" min="1" max="65535" title="待ち受けポート" data-i18n-title="localApi.portTitle" />
+          <div id="localApiState" class="auth-state" data-i18n="localApi.stopped">停止中</div>
+          <div id="localApiTokenRow" class="hidden">
+            <label class="sub" style="display:block;margin:8px 0 3px" data-i18n="localApi.token">アクセストークン (Authorization: Bearer に指定)</label>
+            <input type="text" id="localApiToken" readonly />
+            <div class="row">
+              <button id="localApiCopyBtn" data-i18n="localApi.copy">📋 コピー</button>
+              <button id="localApiRegenBtn" data-i18n="localApi.regen">🔄 再生成</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. 生成エンジン -->
+      <section class="card">
+        <div class="card-head">
+          <div><div class="card-title" data-i18n="sec.engine">⚙️ 生成エンジン</div>
+          <div class="card-sub" data-i18n="sec.engineSub">モーション生成に使用するエンジンを選択します。</div></div>
+        </div>
+        <div class="engine-top">
+          <select id="authMode">
+            <option value="ardy" data-i18n="engine.ardy">ARDYローカルエンジン</option>
+            <option value="codex" data-i18n="engine.codex">Codexサブスクリプション</option>
+            <option value="api-key" data-i18n="engine.apiKey">OpenAI API</option>
+            <option value="claude" data-i18n="engine.claude">Claude API</option>
+          </select>
+        </div>
+        <div id="ardySettings" class="auth-box hidden">
+          <div class="engine-top">
+          <div id="ardyState" class="auth-state" style="flex:1" data-i18n="ardy.unknown">エンジン未確認</div>
+          </div>
+          <div class="auth-actions">
+            <button id="ardyStartBtn" class="btn-blue hidden" data-i18n="btn.engineStart">エンジンを起動</button>
+            <button id="ardySetupBtn" class="btn-soft hidden" data-i18n="btn.engineSetup">⬇ エンジンをセットアップ (初回のみ)</button>
+          </div>
+          <details class="ardy-fold">
+            <summary class="section-sub ai-settings-toggle"><span data-i18n="ardy.gptHead">🧠 モーション生成に使うAI</span><span class="toggle-hint" data-i18n="設定を開く">設定を開く</span><span class="toggle-arrow" aria-hidden="true">⌄</span></summary>
+            <p class="sub" style="margin:6px 0" data-i18n="ardy.gptNote">既定はARDYのみです。必要に応じてAIによる動作の計画・修正を追加できます。</p>
+            <select id="ardyPlanner">
+              <option value="none" data-i18n="ARDYのみ（既定）">ARDYのみ（既定）</option>
+              <option value="codex" data-i18n="Codexサブスクリプション">Codexサブスクリプション</option>
+              <option value="openai">OpenAI API</option>
+              <option value="claude">Claude API</option>
+            </select>
+            <p id="ardyLocalOnlyNote" class="sub hidden" data-i18n="Codexの利用枠・API料金を使わず、ローカルで翻訳とモーション生成を行います。AIによる計画・修正は利用しません。">Codexの利用枠・API料金を使わず、ローカルで翻訳とモーション生成を行います。AIによる計画・修正は利用しません。</p>
+            <div id="ardyGptSlot"></div>
+          </details>
+          <label class="inline setting-row"><span data-i18n="生成候補">生成候補</span>
+            <select id="ardyCandidateCount">
+              <option value="1" data-i18n="通常（1候補）">通常（1候補）</option>
+              <option value="3" data-i18n="比較して選ぶ（3候補）">比較して選ぶ（3候補）</option>
+            </select>
+          </label>
+          <details id="candidateHelp" class="ardy-fold"><summary data-i18n="候補比較について">候補比較について</summary><p class="sub" data-i18n="ARDYで3回生成し、アバター上の足滑り・沈み込みを比較します。動きが大幅に減った候補は自動で選びません。追加のAI呼び出しはなく、ARDYの生成時間は増えます。">ARDYで3回生成し、アバター上の足滑り・沈み込みを比較します。動きが大幅に減った候補は自動で選びません。追加のAI呼び出しはなく、ARDYの生成時間は増えます。</p></details>
+        </div>
+        <label id="reviewSpeedRow" class="inline setting-row hidden"><span data-i18n="生成品質">生成品質</span>
+          <select id="reviewSpeed">
+            <option value="balanced" selected data-i18n="標準">標準</option>
+            <option value="fast" data-i18n="速度優先">速度優先</option>
+            <option value="quality" data-i18n="品質優先">品質優先</option>
+          </select>
+        </label>
+        <p id="reviewModeNote" class="sub hidden"></p>
+        <details id="correctionSettings" class="settings-fold">
+          <summary><span data-i18n="修正設定">修正設定</span><span class="settings-arrow" style="margin-left:auto" aria-hidden="true">⌄</span></summary>
+          <div class="settings-content">
+        <label class="check correction-option" title="生成した動きをAIが確認し、必要に応じて修正します。追加の時間とAIの利用枠を使います。" data-i18n-title="refine.title">
+          <input type="checkbox" id="refineCheck" />
+          <span class="option-copy"><span data-i18n="refine.label">生成後に自動で修正する</span><span class="sub" data-i18n="OFFでも、生成後に手動で修正できます。">OFFでも、生成後に手動で修正できます。</span></span>
+        </label>
+        <label id="reviewImageOption" class="check correction-option">
+          <input type="checkbox" id="visualReviewCheck" />
+          <span class="option-copy"><span data-i18n="修正に画像も使う">修正に画像も使う</span><span class="sub" data-i18n="手動で修正するときにも使います。">手動で修正するときにも使います。</span><span id="visualReviewNotice" class="sub hidden"></span></span>
+        </label>
+        <details id="correctionHelp">
+          <summary data-i18n="修正の使い方">修正の使い方</summary>
+          <p class="sub" data-i18n="自動修正はOFFで始まります。ONにした場合だけ、生成後にAIが動きを確認して修正します。">自動修正はOFFで始まります。ONにした場合だけ、生成後にAIが動きを確認して修正します。</p>
+          <p class="sub" data-i18n="画像も使うをONにすると、見た目も確認します。撮影は自動なので、画像の用意は不要です。"><strong>画像も使う</strong>をONにすると、見た目も確認します。撮影は自動なので、画像の用意は不要です。</p>
+          <p class="sub" data-i18n="ARDYでは、まず修正が必要かを確認します。不要と判断したら元の動きを採用し、理由を比較画面に表示します。">ARDYでは、まず修正が必要かを確認します。不要と判断したら元の動きを採用し、理由を比較画面に表示します。</p>
+          <p class="sub" data-i18n="「この動きを修正」は自動の見直しがOFFでも使えます。長い動きは区間に分けて修正します。長いほど処理時間とAIの使用量が増えます。Codexはサブスクの利用枠、APIは各サービスのAPI料金を使います。AIを「使わない」にすると修正は利用できません。">「この動きを修正」は自動の見直しがOFFでも使えます。長い動きは区間に分けて修正します。長いほど処理時間とAIの使用量が増えます。Codexはサブスクの利用枠、APIは各サービスのAPI料金を使います。AIを「使わない」にすると修正は利用できません。</p>
+        </details>
+
+
+          </div>
+        </details>
+      </section>
+
+        <section class="card"><h3 data-i18n="live.settings">ARDYの逐次生成</h3>
+        <label><span data-i18n="live.balance">速度と品質</span><select id="realtimeSteps" aria-describedby="realtimeStepsHint"><option value="4" data-i18n="live.fast">速度優先</option><option value="8" selected data-i18n="live.balanced">バランス（推奨）</option><option value="16" data-i18n="live.quality">品質優先</option></select></label>
+        <p id="realtimeStepsHint" class="sub" data-i18n="live.hint">速度優先は動きが粗くなる場合があります。品質優先は生成に時間がかかります。</p>
+</section>
+  </dialog>
 
   <div id="licenseModal" class="hidden">
     <div class="box">

@@ -82,3 +82,51 @@ test('preflight skips correction and comparison when no repair is needed',async(
  const result=await directlyReviewMotion('nod',base,{model:'mock',visual:false,inspect:async()=>({images:[],metrics:{},keyPositions:[]}),request:async(_m,_k,_mo,_d,c)=>{calls++;assert.equal(c.outputType,'assessment');return JSON.stringify({needed:false,reason:'具体的な問題は確認できません',issues:[]});}});
  assert.equal(calls,1);assert.equal(result.spec,base);assert.equal(result.candidate,null);assert.equal(result.assessment.needed,false);
 });
+
+test('direct review carries only safe Jev evidence through assessment, patch, and comparison', async () => {
+ const { directlyReviewMotion } = await import('../src/directMotionReview.js');
+ const { toMotionSemanticContext } = await import('../src/jevMotionContext.js');
+ const base = { ...draft(), jevContext: { emotion:'affection',confidence:.1,confidences:{emotion:.9},
+   affect:{happy:{value:.5,confidence:.8}},reaction:'nod',apiKey:'secret-do-not-forward' } };
+ const snapshot = structuredClone(base), calls = [];
+ const result = await directlyReviewMotion('自由に演じる',base,{
+   model:'mock',speed:'balanced',visual:false,
+   inspect:async()=>({images:[],metrics:{},keyPositions:[]}),
+   request:async(messages,_key,_model,_delta,config)=>{
+     calls.push(config.outputType);
+     const serialized=JSON.stringify(messages);
+     assert.match(serialized,/original user request is authoritative/);
+     assert.match(serialized,/affection/);
+     assert.doesNotMatch(serialized,/secret-do-not-forward/);
+     return JSON.stringify(config.outputType==='assessment'?{needed:true,reason:'修正',issues:[]}
+       :config.outputType==='patch'?patch():{improved:true,reason:'改善',resolvedIssues:[],remainingIssues:[]});
+   },
+ });
+ assert.deepEqual(calls,['assessment','patch','verdict']);
+ assert.deepEqual(result.spec.jevContext,toMotionSemanticContext(base.jevContext));
+ assert.deepEqual(result.draft.jevContext,toMotionSemanticContext(base.jevContext));
+ assert.deepEqual(base,snapshot);
+});
+
+test('long-motion review carries Jev context across sections without restarting its initial emotion', async () => {
+ const { directlyReviewMotion } = await import('../src/directMotionReview.js');
+ const { toMotionSemanticContext } = await import('../src/jevMotionContext.js');
+ const base=draft();base.duration=17;base.jevContext={emotion:'joy',confidence:.8,apiKey:'secret'};
+ for(const keys of [...Object.values(base.tracks),base.hips])for(const key of keys)key.t*=17/2;
+ const snapshot=structuredClone(base);let calls=0;
+ const result=await directlyReviewMotion('自由に演じる',base,{
+   model:'mock',speed:'balanced',force:true,visual:false,
+   inspect:async()=>({images:[],metrics:{},keyPositions:[]}),
+   request:async(messages)=>{
+     calls++;
+     const system=messages.find(message=>message.role==='system').content;
+     assert.equal(system.split('Optional Jev semantic evidence').length-1,1);
+     assert.match(system,/original full performance, not this section/);
+     assert.doesNotMatch(system,/secret/);
+     return JSON.stringify({summary:'維持',issues:[],rotations:[],root:[]});
+   },
+ });
+ assert.equal(calls,2);
+ assert.deepEqual(result.spec.jevContext,toMotionSemanticContext(base.jevContext));
+ assert.deepEqual(base,snapshot);
+});

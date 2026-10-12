@@ -26,6 +26,11 @@
       "tools/ardy-engine/**/*",
       "LICENSE",
       "THIRD_PARTY_NOTICES.md",
+      "!**/*.onnx",
+      "!**/*.onnx.gz",
+      "!**/*.safetensors",
+      "!**/*.pt",
+      "!**/*.pth",
       "!dist/models/*.vrm"
     ],
     "directories": {

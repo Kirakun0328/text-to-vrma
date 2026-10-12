@@ -5,6 +5,7 @@ import { applyMotionPatch, rotationDiagnostics } from './motionPatch.js';
 import { hasMetricRegression } from './motionReview.js';
 import { assessMotion } from './motionAssessment.js';
 import { reviewSegments } from './segmentedReview.js';
+import { formatMotionSemanticContext, toMotionSemanticContext } from './jevMotionContext.js';
 
 const parse = raw => JSON.parse(raw.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));
 const imageParts = images => images.map(url=>({type:'image_url',image_url:{url,detail:'high'}}));
@@ -22,9 +23,20 @@ export async function directlyReviewMotion(text, draft, {
   speed = 'quality', force = false, seam = false,
 }) {
   if(!Number.isFinite(draft.duration)||draft.duration<=0)throw new Error(tr('生成秒数が不正です'));
-  const originalRequest=request;
-  request=(messages,...args)=>originalRequest(messages.map(m=>m.role==='system'?{...m,content:m.content+EMOTION_ACTING_GUIDE+`\n修正時は、原文が求めた感情の強さや動作の大きさを消さない。測定・画像で判断できない感情は確認できたと断言しない。\nAll human-readable explanations MUST be in ${{ja:'Japanese',en:'English',zh:'Simplified Chinese',ko:'Korean'}[locale]}. This overrides earlier language instructions. Keep JSON field names unchanged.`}:m),...args);
+  const semanticContext = toMotionSemanticContext(draft.jevContext);
+  if (Object.hasOwn(draft, 'jevContext')) {
+    draft = { ...draft };
+    if (semanticContext) draft.jevContext = semanticContext;
+    else delete draft.jevContext;
+  }
+  // Let each section add evidence once, and retain the original start-only
+  // meaning instead of inventing a new emotion for a later section.
   if (draft.duration > 15) return reviewSegments(text,draft,{request,apiKey,model,visual,inspect,compareImages,skeleton,onProgress,onDraft,speed,force},directlyReviewMotion);
+  const formattedEvidence = formatMotionSemanticContext(semanticContext);
+  const semanticEvidence = formattedEvidence && formattedEvidence + (seam
+    ? '\nThis is a section of a longer motion. START evidence refers to the original full performance, not this section; do not restart its initial emotion here.' : '');
+  const originalRequest=request;
+  request=(messages,...args)=>originalRequest(messages.map(m=>m.role==='system'?{...m,content:m.content+EMOTION_ACTING_GUIDE+`\n修正時は、原文が求めた感情の強さや動作の大きさを消さない。測定・画像で判断できない感情は確認できたと断言しない。\nAll human-readable explanations MUST be in ${{ja:'Japanese',en:'English',zh:'Simplified Chinese',ko:'Korean'}[locale]}. This overrides earlier language instructions. Keep JSON field names unchanged.`+(semanticEvidence?'\n'+semanticEvidence:'')}:m),...args);
   const start=performance.now();
   const effort = speed === 'quality' ? (/^gpt-6-astra(?:-|$)/.test(model)?'xhigh':'high') : speed==='fast'?'low':'medium';
   const plan={duration:draft.duration,intent:text,phases:[{start:0,end:draft.duration,support:'none',targets:[],action:text}],correction:null};

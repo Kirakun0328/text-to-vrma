@@ -17,9 +17,14 @@ import importlib
 import json
 import os
 import re
+import select
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+
+from rolling_sessions import RollingSessions, SessionError, segment_frame_counts
 
 JP_RE = re.compile(r"[぀-ヿ一-鿿]")
 TRANSLATOR_MODEL = "staka/fugumt-ja-en"
@@ -29,6 +34,8 @@ def parse_args():
     ap = argparse.ArgumentParser(description="ARDY local engine server for text-to-vrma")
     ap.add_argument("--port", type=int, default=int(os.environ.get("ARDY_PORT", 2337)))
     ap.add_argument("--model", default="ARDY-Core-RP-20FPS-Horizon40")
+    ap.add_argument("--mini-encoder", default=os.environ.get("ARDY_MINI_ENCODER", ""),
+                    help="Optional verified ARDY-mini ONNX conditioning directory (Core40 only)")
     ap.add_argument(
         "--merged-base",
         default=os.environ.get("ARDY_MERGED_BASE", ""),
@@ -54,6 +61,8 @@ ARGS = parse_args()
 # HTTPで応答でき、GET /health が読み込み進捗 (%) を返せる
 BOOT = {"ready": False, "stage": "libs", "fraction": 0.01, "error": None}
 GEN_LOCK = threading.Lock()
+_SESSION_REGISTRY = None
+_SESSION_REGISTRY_LOCK = threading.Lock()
 
 
 def _watch_encoder_rss(start_frac, end_frac, expected_bytes):
@@ -107,7 +116,12 @@ def _boot():
         _watch_encoder_rss(0.05, 0.80, 17 * 1024 ** 3)  # 8Bエンコーダ ≒ 16GB
         _enc_dev = os.environ.get("TEXT_ENCODER_DEVICE", "").strip().lower()
         _pre_encoder = None
-        if _enc_dev:
+        if ARGS.mini_encoder:
+            from mini_encoder import MiniEncoder
+            if ARGS.model != 'ARDY-Core-RP-20FPS-Horizon40':
+                raise ValueError('ARDY-mini supports Core40 only')
+            _pre_encoder = MiniEncoder(ARGS.mini_encoder)
+        elif _enc_dev:
             try:
                 from ardy.model.load_model import load_text_encoder
                 _pre_encoder = load_text_encoder(device=_enc_dev)
@@ -120,6 +134,10 @@ def _boot():
             model = load_model(ARGS.model, device=DEVICE, text_encoder=_pre_encoder)
         else:
             model = load_model(ARGS.model, device=DEVICE)
+
+        if ARGS.mini_encoder:
+            from mini_encoder import attach_mini
+            attach_mini(model, _pre_encoder, ARGS.model)
 
         # 保険: それでもエンコーダが指定と違うデバイスに居たら移し直す
         if _enc_dev and getattr(model, "text_encoder", None) is not None:
@@ -162,8 +180,12 @@ def _load_translator():
 
         def translate(text: str) -> str:
             batch = tok([text], return_tensors="pt", truncation=True, max_length=256)
-            with torch.no_grad():
-                out = mt.generate(**batch, max_length=256, num_beams=4)
+            # /translate (Jev向け) と生成中の翻訳が別スレッドから同時に呼ばれうる
+            with _TRANSLATOR_LOCK, torch.no_grad():
+                # FuguMT bans its high-logit PAD token. Beam search must compare
+                # normalized probabilities *after* that ban; otherwise unrelated
+                # fragments/repetitions can outrank the faithful translation.
+                out = mt.generate(**batch, max_length=256, num_beams=4, renormalize_logits=True)
             return tok.decode(out[0], skip_special_tokens=True)
 
         _translator = translate
@@ -175,6 +197,21 @@ def _load_translator():
 
 
 # (翻訳モデルのロードは _boot() の完了後にバックグラウンドで開始される)
+
+
+_TRANSLATOR_LOCK = threading.Lock()
+# 1文ずつ訳す。FuguMTは256トークンで切り捨てるため、長い文章をまとめて渡さない
+_SENTENCE_END = re.compile(r"(?<=[。！？!?\n])")
+
+
+def translate_for_analysis(text: str):
+    """意味解析 (Jev) 向けの英訳。翻訳モデルの準備ができていなければ待たずに None を返す。"""
+    if not JP_RE.search(text):
+        return text
+    if _translator is None:
+        return None
+    parts = [part.strip() for part in _SENTENCE_END.split(text) if part.strip()]
+    return " ".join(_translator(part).strip() if JP_RE.search(part) else part for part in parts)
 
 
 def maybe_translate(text: str):
@@ -226,7 +263,7 @@ def estimate_duration(english: str, original: str | None) -> float:
     return max(3.0, min(AUTO_MAX_DURATION, base))
 
 
-VRM_SCALE = 0.9 / 0.896  # retarget.py と同じ (アプリ座標 = Core座標 × scale)
+VRM_SCALE = (0.9 - 0.08) / 0.896  # retarget.py の LEG_SCALE と同じ (アプリ座標 = Core座標 × scale)
 
 
 def build_waypoint_conditions(waypoints, num_frames):
@@ -320,9 +357,18 @@ def waypoint_duration(waypoints, speed: float = 1.0) -> float:
     return max(4.0, min(MAX_DURATION, dist / speed + 3.0))
 
 
+def _resolve_history_frames(value, patch, default):
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or not 4 <= value <= 80 or value % patch:
+        raise ValueError(f"historyFrames must be an integer from 4 to 80, divisible by {patch}")
+    return value
+
+
 def _generate_motion_streaming(
     segments: list, steps: int, observed=None, mask=None, on_chunk=None, cfg=2.0,
     progress_base=0.0, progress_span=1.0,
+    low_latency=False, cancelled=None, history_frames=None,
 ):
     """デモと同じチャンク逐次生成。セグメントごとにプロンプトを切り替える。
 
@@ -335,8 +381,11 @@ def _generate_motion_streaming(
     Args:
         segments: [(english_text, num_frames), ...]
     """
+    history_frames = _resolve_history_frames(history_frames, PATCH, HISTORY)
     horizon = model.gen_horizon_len
-    feats = [model._encode_text([en]) for en, _ in segments]
+    # Encode only the active segment. Later descriptions must not delay the
+    # first playable chunk, and each segment still uses the same full encoder.
+    feats = {}
     bounds = []  # セグメント開始フレーム
     acc = 0
     for _, nf in segments:
@@ -345,8 +394,14 @@ def _generate_motion_streaming(
     num_frames = acc
     motion = None  # 正規化済みハイブリッドモーション [1, T, F]
     while motion is None or motion.shape[1] < num_frames:
+        if cancelled and cancelled():
+            raise ConnectionAbortedError("generation stream disconnected")
         pos = 0 if motion is None else motion.shape[1]
         seg_idx = max(i for i, b in enumerate(bounds) if b <= pos)
+        if seg_idx not in feats:
+            feats[seg_idx] = model._encode_text([segments[seg_idx][0]])
+        if cancelled and cancelled():
+            raise ConnectionAbortedError("generation stream disconnected")
         text_feat, text_pad_mask = feats[seg_idx]
         PROGRESS["text"] = segments[seg_idx][0]
         if motion is None:
@@ -358,7 +413,7 @@ def _generate_motion_streaming(
             # (長い履歴は直前の動きの慣性が勝ち、テキスト切替が効かない)。
             # 単一セグメントでは従来通り HISTORY まで履歴を使う
             frames_since_seg = pos - bounds[seg_idx]
-            max_hist = min(HISTORY, frames_since_seg + PATCH * 2)
+            max_hist = min(history_frames, frames_since_seg + PATCH * 2)
             hist_len = min(motion.shape[1], max_hist) // PATCH * PATCH
             hist_len = max(hist_len, PATCH)
             hist = motion[:, -hist_len:]
@@ -368,6 +423,8 @@ def _generate_motion_streaming(
         remaining = max(0, num_frames - (pos + horizon))
         future_len = min(remaining, _max_window - hist_len - horizon)
         future_len = max(0, future_len // PATCH * PATCH)
+        if low_latency and mask is None:
+            future_len = 0
         window_frames = hist_len + horizon + future_len
         # ウェイポイント制約: 窓に対応する区間を切り出し、履歴部分は無効化
         # (デモ GenerationMixin._generate_step と同じ扱い)
@@ -405,7 +462,8 @@ def _generate_motion_streaming(
         if on_chunk is not None:
             end = min(motion.shape[1], num_frames)
             if end > pos:
-                on_chunk(motion[:, pos:end], pos, num_frames)
+                # Invert with the full prefix so root integration keeps its origin.
+                on_chunk(motion[:, :end], pos, num_frames)
     return motion[:, :num_frames]
 
 
@@ -420,7 +478,7 @@ def _roty(angle):
     return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
 
 
-def _generate_stitched(segments: list, steps: int, cfg: float):
+def _generate_stitched(segments: list, steps: int, cfg: float, history_frames=None):
     """セグメントごとに独立生成し、位置・向きを揃えて縫い合わせる。
 
     連続生成 (履歴引き継ぎ) は直前の動きの慣性が勝って新しい動作
@@ -439,7 +497,7 @@ def _generate_stitched(segments: list, steps: int, cfg: float):
         PROGRESS["text"] = en
         motion = _generate_motion_streaming(
             [(en, nf)], steps, cfg=cfg,
-            progress_base=done / total, progress_span=nf / total,
+            progress_base=done / total, progress_span=nf / total, history_frames=history_frames,
         )
         o = to_numpy(model.motion_rep.inverse(motion, is_normalized=True))
         local = np.asarray(o["local_rot_mats"])[0]
@@ -534,19 +592,272 @@ def _resolve_segments(text, duration, segments_req):
     return [(english, num_frames)], english, original
 
 
+def _apply_motion_context(segments, context):
+    """Add bounded acting qualities, never a selected gesture or a new action.
+
+    The motion descriptions remain primary. Only validated categorical/numeric
+    evidence may add a quality that is not already stated in that segment.
+    """
+    info = {"bodyApplied": False, "fields": [], "segmentsApplied": 0}
+    if not isinstance(context, dict):
+        return segments, info
+    confidences = context.get("confidences")
+    confidences = confidences if isinstance(confidences, dict) else {}
+
+    def number(value):
+        return (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and 0 <= value <= 1)
+
+    def reliable(name):
+        score = confidences.get(name, context.get("confidence", 0))
+        uncertain = context.get("uncertain_fields", [])
+        return number(score) and score >= 0.55 and name not in (uncertain if isinstance(uncertain, list) else [])
+
+    # These describe execution qualities, not an action library. Missing,
+    # neutral, or uncertain evidence leaves the requested motion untouched.
+    patterns = {
+        "emotion": r"\b(happy|happi\w*|joy\w*|sad\w*|angry|angril\w*|anger|surpris\w*|fear\w*|afraid|embarrass\w*|confus\w*|excit\w*|affection\w*|disgust\w*|calm\w*|neutral|emotion\w*)\b",
+        "energy": r"\b(energetic\w*|vigorous\w*|forceful\w*|gentl\w*|soft\w*|tired|exhaust\w*|exertion|relax\w*|intense\w*|powerful\w*|delicate\w*)\b",
+        "scale": r"\b(small\w*|large\w*|big|wide\w*|broad\w*|narrow\w*|tiny|subtle\w*|amplitude|compact\w*|exaggerat\w*)\b",
+        "tempo": r"\b(slow\w*|fast\w*|quick\w*|rapid\w*|brisk\w*|rush\w*|gradual\w*|hurri\w*|unhurried\w*|steady|pace|tempo|speed)\b",
+    }
+    emotion = context.get("emotion")
+    emotions = {"joy", "sadness", "anger", "surprise", "fear", "embarrassment",
+                "confusion", "excitement", "affection", "disgust"}
+    result = []
+    used = set()
+    for index, (text, frames) in enumerate(segments):
+        hints, fields = [], []
+        if (index == 0 and isinstance(emotion, str) and emotion in emotions
+                and reliable("emotion") and reliable("intensity")
+                and number(context.get("emotion_intensity"))
+                and context["emotion_intensity"] >= 0.15
+                and not re.search(patterns["emotion"], text, re.I)):
+            # Jev's emotion describes the start, not a later dramatic change.
+            intensity = context["emotion_intensity"]
+            strength = "subtle" if intensity < 0.4 else "moderate" if intensity < 0.7 else "strong"
+            hints.append("initial " + strength + " " + emotion)
+            fields.extend(["emotion", "emotion_intensity"])
+        energy = context.get("movement_energy")
+        if reliable("energy") and number(energy) and not re.search(patterns["energy"], text, re.I):
+            if energy < 0.3:
+                hints.append("low exertion")
+                fields.append("movement_energy")
+            elif energy > 0.7:
+                hints.append("energetic execution")
+                fields.append("movement_energy")
+        scale = context.get("movement_scale")
+        if (isinstance(scale, str) and scale in {"small", "large"} and reliable("scale")
+                and not re.search(patterns["scale"], text, re.I)):
+            hints.append("compact movement" if scale == "small" else "broad movement")
+            fields.append("movement_scale")
+        tempo = context.get("tempo")
+        if (isinstance(tempo, str) and tempo in {"slow", "fast"} and reliable("tempo")
+                and not re.search(patterns["tempo"], text, re.I)):
+            hints.append("unhurried tempo" if tempo == "slow" else "brisk tempo")
+            fields.append("tempo")
+        if hints:
+            text = text.rstrip() + " Acting quality: " + ", ".join(hints) + "."
+            info["segmentsApplied"] += 1
+            used.update(fields)
+        result.append((text, frames))
+    info["fields"] = sorted(used)
+    info["bodyApplied"] = bool(used)
+    return result, info
+
+
+def _session_plan(request):
+    """Resolve timing without translating/encoding unused future actions."""
+    source = request.get("segments") or [{"text": request["text"], "duration": request["duration"]}]
+    counts = segment_frame_counts(request, FPS, PATCH)
+    return {"segments": [(segment["text"], frames) for segment, frames in zip(source, counts)],
+            "continuous": [segment.get("continuous") for segment in source],
+            "body": [segment.get("body") for segment in source],
+            "lowerArms": [segment.get("lowerArms") or [] for segment in source], "scopeAdjust": {},
+            "rootAxes": [segment.get("rootAxes") for segment in source], "scopeReferences": {},
+            "turns": [segment.get("turn", []) for segment in source], "turnReferences": {},
+            "jevContexts": [segment.get("jevContext") if segment.get("jev", 0) & 4 else None for segment in source],
+            "features": {}, "jev": {"bodyApplied": False, "fields": [], "segmentsApplied": 0}}
+
+
+def _generate_session_chunk(snapshot, cancelled):
+    """Generate one native horizon conditioned on retained physical history."""
+    if cancelled():
+        raise ConnectionAbortedError("session generation superseded")
+    with GEN_LOCK, torch.no_grad():
+        if cancelled():
+            raise ConnectionAbortedError("session generation superseded")
+        request = snapshot["request"]
+        # An append can arrive during an in-flight native step. Rebuild only
+        # timing from the latest immutable prefix, reusing encoded text features.
+        prepared = _session_plan(request)
+        if snapshot["prepared"]:
+            prepared["features"] = dict(snapshot["prepared"]["features"])
+            prepared["jev"] = {**snapshot["prepared"]["jev"]}
+            prepared["scopeReferences"] = dict(snapshot["prepared"].get("scopeReferences", {}))
+            prepared["turnReferences"] = dict(snapshot["prepared"].get("turnReferences", {}))
+            prepared["scopeAdjust"] = dict(snapshot["prepared"].get("scopeAdjust", {}))
+        relative = snapshot["start_frame"] - snapshot["instruction_frame"]
+        offset, active_index = 0, len(prepared["segments"]) - 1
+        for index, (_, frames) in enumerate(prepared["segments"]):
+            if relative < offset + frames:
+                active_index = index
+                break
+            offset += frames
+        text, segment_frames = prepared["segments"][active_index]
+        scope = prepared["body"][active_index]
+        root_axes = prepared["rootAxes"][active_index]
+        if scope and active_index not in prepared["scopeAdjust"]:
+            # Decided once per segment from the actual pose at its start.
+            from motion_scope import arms_not_lowered, is_airborne, airborne_scope
+            adjusted, adjusted_axes = list(scope), root_axes
+            # The caption must END with these arms lowered. Arms already down
+            # stay frozen (and hanging); only raised ones are generated.
+            adjusted += [arm for arm in arms_not_lowered(model.motion_rep, snapshot["motion"], prepared["lowerArms"][active_index])
+                         if arm not in adjusted]
+            # A held pelvis height must not freeze a jump in mid-air.
+            holds_height = "root" not in adjusted or (root_axes is not None and not root_axes[1])
+            if len(adjusted) < 7 and holds_height and is_airborne(model.motion_rep, snapshot["motion"]):
+                adjusted, adjusted_axes = airborne_scope(adjusted, adjusted_axes)
+            prepared["scopeAdjust"][active_index] = (adjusted, adjusted_axes)
+        if scope:
+            scope, root_axes = prepared["scopeAdjust"][active_index]
+        if scope != [] and active_index not in prepared["features"]:
+            english, _ = maybe_translate(text)
+            # START emotion cannot be reintroduced when the plan arrives late
+            # or when a subsequent segment becomes active.
+            # Only explicitly delegated style may supplement an authored action.
+            context = prepared["jevContexts"][active_index] if request.get("plannerOwned") else request.get("motionContext")
+            if context and request.get("plannerOwned"):
+                context = {key: value for key, value in context.items()
+                           if key in {"tempo", "movement_scale", "movement_energy", "confidences"}}
+            if context and (active_index > 0 or relative >= round(1.2 * FPS)):
+                context = {key: value for key, value in context.items() if key not in {"emotion", "emotion_intensity"}}
+            styled, used = _apply_motion_context([(english, segment_frames)], context)
+            english = styled[0][0]
+            if cancelled():
+                raise ConnectionAbortedError("session generation superseded")
+            feature, pad = model._encode_text([english])
+            prepared["features"][active_index] = (feature, pad)
+            prepared["jev"]["bodyApplied"] |= used["bodyApplied"]
+            prepared["jev"]["fields"] = sorted(set(prepared["jev"]["fields"]) | set(used["fields"]))
+            prepared["jev"]["segmentsApplied"] += used["segmentsApplied"]
+        if cancelled():
+            raise ConnectionAbortedError("session generation superseded")
+        prefix = snapshot["motion"]
+        available = snapshot["start_frame"] - snapshot["motion_start"]
+        continuous = prepared["continuous"][active_index]
+        configured_history = PATCH if continuous is True else 40 if continuous is False else request["historyFrames"]
+        # At a new action/instruction preserve root and immediate pose, without
+        # allowing the old action's long physical history to dominate the intent.
+        max_history = min(configured_history, max(PATCH, relative - offset))
+        history_length = min(available, max_history) // PATCH * PATCH
+        history = prefix[:, -history_length:] if prefix is not None and history_length else None
+        # At an authored action boundary, motion-history conditioning can keep
+        # producing the previous action despite the new caption. Preserve the
+        # world position/heading, infer the new action independently, then join
+        # its first future poses to the real last pose. Within an action the
+        # native autoregressive history remains unchanged.
+        action_restart = scope != [] and prefix is not None and available > 0 and relative == offset
+        initial_translation = initial_heading = None
+        if action_restart:
+            _, initial_translation, initial_heading = model._encode_init_history(prefix[:, -PATCH:], prefix.shape[0])
+            initial_heading = model.motion_rep.get_root_heading_angle(model.motion_rep.unnormalize(prefix[:, -1:]))[:, -1]
+            history, history_length = None, 0
+        reference, observed, mask = None, None, None
+        if scope is not None and (len(scope) < 7 or (root_axes is not None and not all(root_axes))):
+            from motion_scope import scope_reference, scope_conditions, project_scope
+            if active_index not in prepared["scopeReferences"]:
+                prepared["scopeReferences"][active_index] = scope_reference(model.motion_rep, scope, prefix, root_axes)
+            reference = prepared["scopeReferences"][active_index]
+            if scope:
+                observed, mask = scope_conditions(model.motion_rep, reference, history_length + model.gen_horizon_len)
+        if scope == []:
+            # The planner owns face/head/gaze channels separately. If it requests
+            # no new body motion, keep the actual pose without an encoder or GPU
+            # inference whose entire output would subsequently be discarded.
+            held = model.motion_rep(reference["local"].expand(-1, model.gen_horizon_len, -1, -1, -1),
+                                    reference["root"].expand(-1, model.gen_horizon_len, -1), to_normalize=True)
+            samples = held if history is None else torch.cat([history, held], dim=1)
+        else:
+            feature, pad = prepared["features"][active_index]
+            samples = model.autoregressive_step(
+                num_frames=history_length + model.gen_horizon_len,
+                num_denoising_steps=min(NUM_BASE_STEPS, request["steps"]),
+                motion_mask=mask, observed_motion=observed,
+                cfg_weight=(request["cfg"], 2.0), text_feat=feature, text_pad_mask=pad,
+                init_history_sequence=history,
+                init_global_translation=initial_translation if action_restart else None if history is not None else torch.zeros(1, model.motion_rep.nfeats_dict["root_pos"], device=DEVICE),
+                init_first_heading_angle=initial_heading if action_restart else None if history is not None else torch.zeros(1, device=DEVICE),
+            )
+        if cancelled():
+            raise ConnectionAbortedError("session generation superseded")
+        remaining_segment = offset + segment_frames - relative
+        keep = min(model.gen_horizon_len, snapshot["target_frame"] - snapshot["start_frame"], remaining_segment)
+        if action_restart:
+            from motion_scope import blend_action_start
+            samples = blend_action_start(model.motion_rep, prefix, samples, min(PATCH * 2, keep))
+        new = samples[:, history_length:history_length + keep]
+        # The official autoregressive_step returns explicit global root/heading
+        # coordinates. Decode this history + horizon window, not the whole clip.
+        if reference is not None:
+            new, decoded = project_scope(model.motion_rep, reference, samples, history_length, keep)
+            out = to_numpy(decoded)
+        else:
+            out = to_numpy(model.motion_rep.inverse(samples[:, :history_length + keep], is_normalized=True))
+        turn = prepared['turns'][active_index]
+        if turn:
+            from turn_control import turn_reference, project_turn
+            if active_index not in prepared['turnReferences']:
+                prepared['turnReferences'][active_index] = turn_reference(model.motion_rep, new, prefix, turn[1])
+            new, decoded_turn = project_turn(model.motion_rep, new, prepared['turnReferences'][active_index], turn[0], relative - offset, segment_frames)
+            # This decoded window contains future frames only.
+            out = to_numpy(decoded_turn)
+            history_length = 0
+        motion = new if prefix is None else torch.cat([prefix, new], dim=1)
+        glob, root = out["global_rot_mats"], out["root_positions"]
+        if glob.ndim == 5:
+            glob, root = glob[0], root[0]
+        fragment = spec_from_arrays(glob[history_length:], root[history_length:], FPS,
+                                    "rolling motion", arm_spread_deg=request["armSpread"],
+                                    t_offset=snapshot["start_frame"] / FPS)
+        return {"motion": motion, "prepared": prepared, "frames": keep,
+                "payload": {"tracks": fragment["tracks"], "hips": fragment["hips"],
+                            "bodyScope": scope, "rootAxes": root_axes, "bodyInferenceSkipped": scope == [],
+                            "actionRestarted": action_restart},
+                "jev": prepared["jev"]}
+
+
+def _rolling_sessions():
+    global _SESSION_REGISTRY
+    with _SESSION_REGISTRY_LOCK:
+        if _SESSION_REGISTRY is None:
+            _SESSION_REGISTRY = RollingSessions(FPS, model.gen_horizon_len, PATCH, _generate_session_chunk,
+                                               lambda motion, start, end: motion[:, start:end].clone(),
+                                               default_steps=min(8, NUM_BASE_STEPS), default_history=HISTORY,
+                                               default_arm_spread=ARGS.arm_spread)
+        return _SESSION_REGISTRY
+
+
 def generate_spec(
     text: str, duration=None, seed=None, steps=None, arm_spread=None, segments_req=None,
     postprocess=True, waypoints=None, on_chunk=None, cfg=None,
+    low_latency=False, cancelled=None,
+    motion_context=None, history_frames=None,
 ) -> dict:
+    history_frames = _resolve_history_frames(history_frames, PATCH, HISTORY)
     arm_spread = ARGS.arm_spread if arm_spread is None else max(0.0, min(20.0, float(arm_spread)))
     steps = int(steps) if steps else NUM_BASE_STEPS
     steps = max(1, min(NUM_BASE_STEPS, steps))
     # 既定CFG 3.0: 2.0より動作のテキスト追従が安定する (実測: 歩行速度の再現性向上)
     cfg = 3.0 if cfg is None else max(1.0, min(6.0, float(cfg)))
     with GEN_LOCK, torch.no_grad():
+        if cancelled and cancelled():
+            raise ConnectionAbortedError("generation stream disconnected")
         PROGRESS.update(active=True, stage="translate", started=time.time(), fraction=0.0, text=text)
         try:
             segments, english, original = _resolve_segments(text, duration, segments_req)
+            segments, jev_info = _apply_motion_context(segments, motion_context)
             num_frames = sum(nf for _, nf in segments)
             # 経由地がある場合、経路を回りきれる長さまで比例拡大する。
             # 所要時間は動作の速度 (走る=2.5m/s、歩く=1m/s等) をテキストから推定して決める
@@ -581,16 +892,19 @@ def generate_spec(
             t_model = time.time()
             # 複数セグメント (経由地なし) は独立生成+縫い合わせ:
             # 履歴引き継ぎだと直前動作の慣性で新しい動作が発火しないことがあるため
-            use_stitch = len(segments) > 1 and not waypoints
+            use_stitch = len(segments) > 1 and not waypoints and on_chunk is None
             if use_stitch:
-                local_np, root_np, fc_np = _generate_stitched(segments, steps, cfg)
+                local_np, root_np, fc_np = _generate_stitched(segments, steps, cfg, history_frames=history_frames)
                 output = {
                     "local_rot_mats": torch.tensor(local_np, dtype=torch.float32, device=DEVICE)[None],
                     "root_positions": torch.tensor(root_np, dtype=torch.float32, device=DEVICE)[None],
                     "foot_contacts": torch.tensor(fc_np, device=DEVICE)[None],
                 }
             else:
-                motion = _generate_motion_streaming(segments, steps, observed, cmask, on_chunk, cfg)
+                motion = _generate_motion_streaming(
+                    segments, steps, observed, cmask, on_chunk, cfg,
+                    low_latency=low_latency, cancelled=cancelled, history_frames=history_frames,
+                )
                 output = model.motion_rep.inverse(motion, is_normalized=True)
             t_inverse = time.time()
             PROGRESS["stage"] = "finalize"
@@ -618,14 +932,31 @@ def generate_spec(
             )
             if original is not None:
                 spec["originalText"] = original
+            if motion_context is not None:
+                spec["jev"] = jev_info
             return spec
         finally:
             PROGRESS["active"] = False
 
 
-# CORSを許可する呼び出し元 (アプリ本体 app:// / ローカル開発 / file://) のみに限定する。
+# CORSを許可する呼び出し元 (アプリ本体 app://bundle / ローカル開発) のみに限定する。
 # 無関係なWebサイトから 127.0.0.1:2337 を叩かれてGPU/メモリを消費されるのを防ぐ
-_ALLOWED_ORIGIN_PREFIXES = ("app://", "http://localhost", "http://127.0.0.1", "file://")
+def _is_local_origin(origin):
+    if origin == "app://bundle":
+        return True
+    try:
+        parsed = urlparse(origin)
+        # Validate the entire origin, not a hostname prefix (localhost.evil is
+        # not local). Accessing port also rejects malformed port numbers.
+        parsed.port
+        return (origin == origin.strip() and parsed.scheme in {"http", "https"}
+                and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+                and parsed.username is None and parsed.password is None
+                and not parsed.path and not parsed.params and not parsed.query and not parsed.fragment)
+    except ValueError:
+        return False
+
+
 # リクエストボディの上限 (巨大bodyによるメモリ枯渇DoS対策)
 MAX_REQUEST_BYTES = 8 * 1024 * 1024  # 8MB
 
@@ -633,7 +964,7 @@ MAX_REQUEST_BYTES = 8 * 1024 * 1024  # 8MB
 class Handler(BaseHTTPRequestHandler):
     def _cors_origin(self) -> str:
         o = self.headers.get("Origin", "")
-        return o if o.startswith(_ALLOWED_ORIGIN_PREFIXES) else "null"
+        return o if _is_local_origin(o) else "null"
 
     def _send(self, code: int, payload: dict):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -643,7 +974,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", self._cors_origin())
         self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.end_headers()
         self.wfile.write(body)
 
@@ -675,6 +1006,8 @@ class Handler(BaseHTTPRequestHandler):
                 "device": DEVICE,
                 "fps": FPS,
                 "translator": _translator_state,
+                "bodyScopeSupported": True, "rootAxesSupported": True,
+                "textEncoder": "ardy-mini-onnx" if ARGS.mini_encoder else "llm2vec",
             })
         elif self.path == "/progress":
             if PROGRESS["active"]:
@@ -699,8 +1032,14 @@ class Handler(BaseHTTPRequestHandler):
         if not BOOT["ready"]:
             self._send(503, {"error": "loading", "progress": round(BOOT["fraction"], 3)})
             return
+        if self.path == "/sessions" or self.path.startswith("/sessions/"):
+            self._handle_session_request()
+            return
         if self.path == "/generate-stream":
             self._handle_generate_stream()
+            return
+        if self.path == "/translate":
+            self._handle_translate()
             return
         if self.path != "/generate":
             self._send(404, {"error": "not found"})
@@ -719,7 +1058,8 @@ class Handler(BaseHTTPRequestHandler):
             spec = generate_spec(
                 text, duration, req.get("seed"), req.get("steps"), req.get("armSpread"),
                 segments_req, req.get("postprocess", True), req.get("waypoints"),
-                cfg=req.get("cfg"),
+                cfg=req.get("cfg"), history_frames=req.get("historyFrames"),
+                motion_context=req.get("motionContext"),
             )
             print(f"generated '{spec['name'][:50]}' ({spec['duration']}s) in {time.time()-t0:.1f}s", flush=True)
             self._send(200, spec)
@@ -728,6 +1068,90 @@ class Handler(BaseHTTPRequestHandler):
 
             traceback.print_exc()
             self._send(500, {"error": str(e)})
+
+    def _handle_translate(self):
+        """POST /translate {"text"} → {"english", "translated"}。Jevへ英語で渡すために使う。"""
+        req = self._read_json_body()
+        if req is None:
+            return
+        text = req.get("text")
+        if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+            self._send(400, {"error": "text must be 1-4000 characters", "code": "invalid_text"})
+            return
+        try:
+            english = translate_for_analysis(text.strip())
+        except Exception as e:  # noqa: BLE001
+            self._send(500, {"error": str(e), "code": "translation_failed"})
+            return
+        if english is None:
+            self._send(503, {"error": f"translator not ready ({_translator_state})", "code": "translator_unavailable"})
+            return
+        self._send(200, {"english": english, "translated": english != text.strip()})
+
+    def do_DELETE(self):
+        self._handle_session_request(delete=True)
+
+    def _handle_session_request(self, delete=False):
+        # Sessions are a local control API. Origin and JSON checks prevent a
+        # remote web page from creating or editing a generation session.
+        try:
+            host = urlparse("//" + self.headers.get("Host", "")).hostname
+            origin = self.headers.get("Origin", "")
+            local_origin = not origin or _is_local_origin(origin)
+        except ValueError:
+            host, local_origin = None, False
+        # localhost -> 127.0.0.1 and app://bundle -> loopback are legitimately
+        # cross-site. Their explicit, validated Origin is authoritative here.
+        # Still reject cross-site browser requests with no identifiable Origin.
+        unidentified_cross_site = not self.headers.get("Origin") and self.headers.get("Sec-Fetch-Site") == "cross-site"
+        if host not in {"localhost", "127.0.0.1", "::1"} or not local_origin or unidentified_cross_site:
+            self._send(403, {"error": "session requests must originate locally", "code": "forbidden_origin"})
+            return
+        if not delete and self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+            self._send(415, {"error": "Content-Type must be application/json", "code": "unsupported_media_type"})
+            return
+        try:
+            if not BOOT["ready"]:
+                self._send(503, {"error": "loading"})
+                return
+            body = {} if delete else self._read_json_body()
+            if body is None:
+                return
+            registry = _rolling_sessions()
+            if self.path == "/sessions" and not delete:
+                self._send(200, registry.create(body))
+                return
+            match = re.fullmatch(r"/sessions/([a-f0-9-]{36})(?:/(next|update|append|close))?", self.path)
+            if not match:
+                self._send(404, {"error": "unknown session endpoint"})
+                return
+            session_id, operation = match.groups()
+            if operation == "close" or (delete and operation is None):
+                result = registry.close(session_id)
+            elif operation == "update" and not delete:
+                result = registry.update(session_id, body)
+            elif operation == "append" and not delete:
+                result = registry.append(session_id, body)
+            elif operation == "next" and not delete:
+                def disconnected():
+                    try:
+                        ready, _, _ = select.select([self.connection], [], [], 0)
+                        return bool(ready) and self.connection.recv(1, socket.MSG_PEEK) == b""
+                    except OSError:
+                        return True
+                result = registry.next(session_id, body, disconnected)
+            else:
+                self._send(404, {"error": "unknown session endpoint"})
+                return
+            self._send(200, result)
+        except SessionError as error:
+            self._send(error.status, {"error": str(error), "code": error.code})
+        except (ValueError, TypeError, KeyError) as error:
+            self._send(400, {"error": "invalid session request", "code": "invalid_session_request"})
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            self._send(500, {"error": "session generation failed", "code": "session_generation_failed"})
 
     def _handle_generate_stream(self):
         """NDJSONストリーミング生成: チャンクができるたびにspec断片を送る。
@@ -764,13 +1188,23 @@ class Handler(BaseHTTPRequestHandler):
         arm = ARGS.arm_spread if arm is None else max(0.0, min(20.0, float(arm)))
         state = {"meta_sent": False}
 
+        def cancelled():
+            try:
+                ready, _, _ = select.select([self.connection], [], [], 0)
+                return bool(ready) and self.connection.recv(1, socket.MSG_PEEK) == b""
+            except OSError:
+                return True
+
         def on_chunk(chunk, pos, total):
             if not state["meta_sent"]:
                 emit({"type": "meta", "fps": FPS, "numFrames": total, "duration": round(total / FPS, 3)})
                 state["meta_sent"] = True
             out = to_numpy(model.motion_rep.inverse(chunk, is_normalized=True))
+            glob, root = out["global_rot_mats"], out["root_positions"]
+            if glob.ndim == 5:
+                glob, root = glob[0], root[0]
             frag = spec_from_arrays(
-                out["global_rot_mats"], out["root_positions"], FPS, "chunk",
+                glob[pos:], root[pos:], FPS, "chunk",
                 arm_spread_deg=arm, t_offset=pos / FPS,
             )
             emit({"type": "chunk", "tracks": frag["tracks"], "hips": frag["hips"]})
@@ -781,6 +1215,9 @@ class Handler(BaseHTTPRequestHandler):
                 text, req.get("duration"), req.get("seed"), req.get("steps"), arm,
                 segments_req, req.get("postprocess", True), req.get("waypoints"),
                 on_chunk=on_chunk,
+                cfg=req.get("cfg"), low_latency=req.get("lowLatency") is True,
+                cancelled=cancelled,
+                motion_context=req.get("motionContext"), history_frames=req.get("historyFrames"),
             )
             print(f"stream-generated '{spec['name'][:50]}' in {time.time()-t0:.1f}s", flush=True)
             emit({"type": "final", "spec": spec})

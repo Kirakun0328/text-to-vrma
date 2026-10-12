@@ -1,5 +1,6 @@
 // vrmaBuilder.js — モーション仕様 JSON から VRMA (VRMC_vrm_animation 拡張付き GLB) を生成する
 import * as THREE from 'three';
+import { prepareContinuousLoop } from './loopPlayback.js';
 
 // VRMA ファイル内に埋め込むレストポーズ骨格 (VRM1 規約: +Z 正面 / +X が左手側 / T ポーズ)
 // [親ボーン名, ローカル平行移動]
@@ -61,12 +62,12 @@ export const EXPRESSION_PRESETS = [
 const eulerQuat = (() => {
   const e = new THREE.Euler();
   const q = new THREE.Quaternion();
-  return (deg) => {
+  return (deg, order = 'XYZ') => {
     e.set(
       THREE.MathUtils.degToRad(deg[0]),
       THREE.MathUtils.degToRad(deg[1]),
       THREE.MathUtils.degToRad(deg[2]),
-      'XYZ'
+      order
     );
     q.setFromEuler(e);
     return [q.x, q.y, q.z, q.w];
@@ -80,11 +81,12 @@ const eulerQuat = (() => {
  *   loop: boolean,
  *   tracks: { boneName: [{ t, r: [degX, degY, degZ] }, ...] },
  *   hips:   [{ t, p: [dx, dy, dz] }, ...],  // レスト位置からのオフセット(省略可)
- *   expressions: { happy: [{ t, w }, ...], ... }  // 表情ウェイト 0〜1 (省略可)
+ *   expressions: { happy: [{ t, w }, ...], ... }, // 表情ウェイト 0〜1 (省略可)
+ *   lookAt: [{ t, r: [pitchDeg, yawDeg, 0] }, ...] // 眼球の視線、YXZ。正のpitch=下、yaw=左 (省略可)
  * }
  * @returns {ArrayBuffer} GLB 形式の .vrma バイナリ
  */
-export function buildVRMA(spec) {
+export function buildVRMA(spec, { seamlessLoop = false } = {}) {
   const nodes = [];
   const nodeIndex = {};
   for (const name of ALL_BONES) {
@@ -102,6 +104,16 @@ export function buildVRMA(spec) {
   // (指ボーンを持たないモデルではリターゲット時に無視される)
   const tracks = { ...(spec.tracks ?? {}) };
   const dur = spec.duration ?? 1;
+  // Native VRMA gaze drives either a model's eye bones or its look expressions.
+  // It is relative to the head and uses VRMLookAt's YXZ convention, not the
+  // humanoid tracks' XYZ convention. Keep the target directly under the scene.
+  if (spec.lookAt != null && !Array.isArray(spec.lookAt)) throw new Error('視線トラックの形式が不正です');
+  const gaze = [...(spec.lookAt ?? [])].sort((a, b) => a?.t - b?.t);
+  if (gaze.some((key, index) => !Number.isFinite(key?.t) || key.t < 0
+    || (index > 0 && key.t <= gaze[index - 1].t) || !Array.isArray(key.r) || key.r.length !== 3
+    || key.r.some(value => !Number.isFinite(value)) || key.r[2] !== 0)) {
+    throw new Error('視線トラックの時刻・角度が不正です');
+  }
 
   // 肩の自動追従: 腕を高く上げたとき鎖骨を少し持ち上げ、肩付け根のメッシュ潰れを軽減する
   // (左の腕上げ = upperArm Z 正 / 右 = 負。下げた腕では発動しない)
@@ -128,6 +140,37 @@ export function buildVRMA(spec) {
         }
       }
     }
+  }
+
+  // Preview and export use the same join, including expression curves. Keep
+  // ordinary/partial VRMAs untouched; only a completed requested loop is baked.
+  const bakeLoop = seamlessLoop && spec.loop === true && Number.isFinite(dur) && dur >= .25;
+  const loopTracks = new Map();
+  let loopTraveling = false;
+  if (bakeLoop) {
+    const sourceTracks = [];
+    for (const [bone, keys] of Object.entries(tracks)) {
+      if (!(bone in SKELETON) || !keys?.length) continue;
+      const sorted = [...keys].sort((a, b) => a.t - b.t);
+      sourceTracks.push(new THREE.QuaternionKeyframeTrack(`J_${bone}.quaternion`,
+        sorted.map(key => key.t), sorted.flatMap(key => eulerQuat(key.r))));
+    }
+    if (spec.hips?.length) {
+      const sorted = [...spec.hips].sort((a, b) => a.t - b.t);
+      sourceTracks.push(new THREE.VectorKeyframeTrack('J_hips.position', sorted.map(key => key.t),
+        sorted.flatMap(key => [key.p[0], HIPS_HEIGHT + key.p[1], key.p[2]])));
+    }
+    for (const [name, keys] of Object.entries(spec.expressions ?? {})) {
+      if (!EXPRESSION_PRESETS.includes(name) || !keys?.length) continue;
+      const sorted = [...keys].sort((a, b) => a.t - b.t);
+      sourceTracks.push(new THREE.VectorKeyframeTrack(`E_${name}.position`, sorted.map(key => key.t),
+        sorted.flatMap(key => [Math.max(0, Math.min(1, Number(key.w) || 0)), 0, 0])));
+    }
+    if (gaze.length) sourceTracks.push(new THREE.QuaternionKeyframeTrack('L_lookAt.quaternion',
+      gaze.map(key => key.t), gaze.flatMap(key => eulerQuat(key.r, 'YXZ'))));
+    const { clip, state } = prepareContinuousLoop(new THREE.AnimationClip(spec.name ?? 'motion', dur, sourceTracks), 'J_hips');
+    loopTraveling = state.traveling;
+    for (const track of clip.tracks) loopTracks.set(track.name, track);
   }
 
   const binParts = [];
@@ -164,9 +207,10 @@ export function buildVRMA(spec) {
   for (const [bone, keys] of trackEntries) {
     if (!keys?.length) continue;
     const sorted = [...keys].sort((a, b) => a.t - b.t);
-    const times = new Float32Array(sorted.map((k) => k.t));
-    const values = new Float32Array(sorted.length * 4);
-    sorted.forEach((k, i) => values.set(eulerQuat(k.r), i * 4));
+    const baked = loopTracks.get(`J_${bone}.quaternion`);
+    const times = baked?.times ?? new Float32Array(sorted.map((k) => k.t));
+    const values = baked?.values ?? new Float32Array(sorted.length * 4);
+    if (!baked) sorted.forEach((k, i) => values.set(eulerQuat(k.r), i * 4));
     const input = addAccessor(times, 'SCALAR', true);
     const output = addAccessor(values, 'VEC4', false);
     samplers.push({ input, output, interpolation: 'LINEAR' });
@@ -178,9 +222,10 @@ export function buildVRMA(spec) {
 
   if (spec.hips?.length) {
     const sorted = [...spec.hips].sort((a, b) => a.t - b.t);
-    const times = new Float32Array(sorted.map((k) => k.t));
-    const values = new Float32Array(sorted.length * 3);
-    sorted.forEach((k, i) =>
+    const baked = loopTracks.get('J_hips.position');
+    const times = baked?.times ?? new Float32Array(sorted.map((k) => k.t));
+    const values = baked?.values ?? new Float32Array(sorted.length * 3);
+    if (!baked) sorted.forEach((k, i) =>
       values.set([k.p[0], HIPS_HEIGHT + k.p[1], k.p[2]], i * 3)
     );
     const input = addAccessor(times, 'SCALAR', true);
@@ -192,6 +237,19 @@ export function buildVRMA(spec) {
     });
   }
 
+  let gazeNode;
+  if (gaze.length) {
+    gazeNode = nodes.length;
+    nodes.push({ name: 'L_lookAt', rotation: [0, 0, 0, 1] });
+    const baked = loopTracks.get('L_lookAt.quaternion');
+    const times = baked?.times ?? new Float32Array(gaze.map(key => key.t));
+    const values = baked?.values ?? new Float32Array(gaze.flatMap(key => eulerQuat(key.r, 'YXZ')));
+    const input = addAccessor(times, 'SCALAR', true);
+    const output = addAccessor(values, 'VEC4', false);
+    samplers.push({ input, output, interpolation: 'LINEAR' });
+    channels.push({ sampler: samplers.length - 1, target: { node: gazeNode, path: 'rotation' } });
+  }
+
   // 表情トラック: VRMA 仕様では表情ごとのダミーノードの translation.x にウェイトを載せる
   const expressionsUsed = {};
   for (const [name, keys] of Object.entries(spec.expressions ?? {})) {
@@ -200,9 +258,10 @@ export function buildVRMA(spec) {
     nodes.push({ name: `E_${name}`, translation: [0, 0, 0] });
     expressionsUsed[name] = { node: nodeIdx };
     const sorted = [...keys].sort((a, b) => a.t - b.t);
-    const times = new Float32Array(sorted.map((k) => k.t));
-    const values = new Float32Array(sorted.length * 3);
-    sorted.forEach((k, i) =>
+    const baked = loopTracks.get(`E_${name}.position`);
+    const times = baked?.times ?? new Float32Array(sorted.map((k) => k.t));
+    const values = baked?.values ?? new Float32Array(sorted.length * 3);
+    if (!baked) sorted.forEach((k, i) =>
       values.set([Math.max(0, Math.min(1, Number(k.w) || 0)), 0, 0], i * 3)
     );
     const input = addAccessor(times, 'SCALAR', true);
@@ -228,15 +287,23 @@ export function buildVRMA(spec) {
       VRMC_vrm_animation: {
         specVersion: '1.0',
         humanoid: { humanBones },
+        ...(gazeNode !== undefined ? { lookAt: { node: gazeNode } } : {}),
         ...(Object.keys(expressionsUsed).length
           ? { expressions: { preset: expressionsUsed } }
           : {}),
       },
     },
     scene: 0,
-    scenes: [{ nodes: [nodeIndex.hips] }],
+    scenes: [{ nodes: [nodeIndex.hips, ...(gazeNode !== undefined ? [gazeNode] : [])] }],
     nodes,
-    animations: [{ name: spec.name ?? 'motion', channels, samplers }],
+    animations: [{ name: spec.name ?? 'motion', channels, samplers,
+      ...(typeof spec.loop === 'boolean' ? { extras: { textToMotionLoop: {
+        version: 1, enabled: spec.loop, prepared: bakeLoop,
+        ...(bakeLoop ? { traveling: loopTraveling } : {}),
+        // VRMA/glTF itself does not prescribe repeat or root-motion playback.
+        rootMotion: 'accumulate',
+      } } } : {}),
+    }],
     accessors,
     bufferViews,
     buffers: [{ byteLength: binOffset }],

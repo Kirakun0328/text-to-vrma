@@ -48,7 +48,12 @@ VRM_MAP = {
 }
 
 CORE_REST_HIPS_HEIGHT = 0.896  # cskel27 neutral: Hips→Foot の高さ
-APP_HIPS_HEIGHT = 0.9          # vrmaBuilder.js HIPS_HEIGHT
+CORE_REST_FOOT_HEIGHT = 0.07   # cskel27 立ちポーズの Foot の床からの高さ (Toe は Foot の 0.058 下。生成結果の立ちHips 約0.966 とも一致)
+APP_HIPS_HEIGHT = 0.9          # vrmaBuilder.js HIPS_HEIGHT (床→Hips)
+APP_FOOT_HEIGHT = 0.08         # vrmaBuilder.js レスト骨格の Foot の床からの高さ (0.9 - 0.02 - 0.38 - 0.42)
+# 脚の長さ (Hips→Foot) の比。ルート位置はこの比で縮め、高さは Foot の床からの高さを足し直す。
+# 床→Hips の高さと Hips→Foot の長さを比べると、Hips が脚 (回転のみ転写) より高く置かれて足が浮く
+LEG_SCALE = (APP_HIPS_HEIGHT - APP_FOOT_HEIGHT) / CORE_REST_HIPS_HEIGHT
 
 
 def convert(npz_path: str, fps_div: int = 1) -> dict:
@@ -84,7 +89,7 @@ def spec_from_arrays(
         glob, root = glob[0], root[0]
     T = glob.shape[0]
     frames = range(0, T, fps_div)
-    scale = APP_HIPS_HEIGHT / CORE_REST_HIPS_HEIGHT
+    scale = LEG_SCALE
 
     tracks = {bone: [] for bone in VRM_MAP}
     hips_pos = []
@@ -105,9 +110,10 @@ def spec_from_arrays(
             e = R.from_matrix(Rl).as_euler("XYZ", degrees=True)
             tracks[bone].append({"t": t, "r": [round(v, 2) for v in e]})
         p = root[f] * scale
+        y = (root[f][1] - CORE_REST_FOOT_HEIGHT) * scale + APP_FOOT_HEIGHT
         hips_pos.append({
             "t": t,
-            "p": [round(p[0], 4), round(p[1] - APP_HIPS_HEIGHT, 4), round(p[2], 4)],
+            "p": [round(p[0], 4), round(y - APP_HIPS_HEIGHT, 4), round(p[2], 4)],
         })
 
     duration = round(t_offset + (T - 1) / fps, 4)

@@ -1,5 +1,10 @@
 // Translation rows: Japanese, English, Simplified Chinese, Korean.
 export const reviewTranslations = [
+['設定','Settings','设置','설정'],
+['接続設定','Connections','连接设置','연결 설정'],
+['動きの設定','Motion settings','动作设置','동작 설정'],
+['Jev接続を確認','Test Jev connection','测试 Jev 连接','Jev 연결 확인'],
+['設定はこの端末に自動保存されます。','Settings are saved automatically on this device.','设置会自动保存在此设备上。','설정은 이 기기에 자동으로 저장됩니다.'],
 ['Codexが未導入、または古い場合はPC側でインストール・更新してください。アプリには同梱していません。','If Codex is missing or outdated, install or update it on your PC. It is not bundled with the app.','如果尚未安装 Codex 或版本过旧，请在电脑上安装或更新。应用不附带 Codex。','Codex가 없거나 오래된 경우 PC에서 설치하거나 업데이트하세요. 앱에는 포함되어 있지 않습니다.'],
 ['インストール・更新の手順','Install or update','安装与更新步骤','설치 및 업데이트 방법'],
 ['Node.jsのnpmが使えるターミナルで次を実行し、アプリを再起動してください。動作確認済みの0.153.3を導入します。','Run this in a terminal with Node.js and npm, then restart the app. It installs the tested version 0.153.3.','在可使用 Node.js 和 npm 的终端中执行以下命令，然后重启应用。这将安装已验证的 0.153.3 版本。','Node.js와 npm을 사용할 수 있는 터미널에서 실행한 후 앱을 재시작하세요. 검증된 0.153.3 버전을 설치합니다.'],

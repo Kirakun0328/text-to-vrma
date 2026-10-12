@@ -36,6 +36,7 @@ class ArdyClient {
     return {
       pythonExe: process.env.ARDY_PYTHON || config.pythonExe || null,
       mergedBase: process.env.ARDY_MERGED_BASE || config.mergedBase || null,
+      miniEncoder: process.env.ARDY_MINI_ENCODER || config.miniEncoder || null,
       // HuggingFaceキャッシュの場所 (Linuxインストーラが大容量ディスク側に置いた場合など)。
       // 実行時も同じキャッシュを見ないとモデルを見つけられず再ダウンロードになる。
       hfHome: process.env.ARDY_HF_HOME || process.env.HF_HOME || config.hfHome || null,
@@ -153,6 +154,7 @@ class ArdyClient {
     const serverScript = path.join(this.engineDir, 'server.py');
     const args = [serverScript, '--port', String(config.port)];
     if (config.mergedBase) args.push('--merged-base', config.mergedBase);
+    if (config.miniEncoder) args.push('--mini-encoder', config.miniEncoder);
     this.lastError = null;
     // PATHを最小構成に洗浄して起動する: ユーザーのPATHに他のPyTorch/CUDA/conda
     // 環境があると、そちらのDLLが混ざって WinError 1114 (DLL初期化失敗) になるため

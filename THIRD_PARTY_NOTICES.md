@@ -1,5 +1,22 @@
 # Third-Party Notices
 
+## Optional ARDY-mini integration
+
+The optional native conditioner integration references intsuc's ARDY-mini
+(https://github.com/intsuc/ardy-mini), whose source is Apache-2.0. Its model
+weights are not included in this application's source or packaged files.
+The separately downloaded `Llama-3-ARDY-Mini-Core40-Browser` artifact has
+composite terms, including Meta Llama 3 teacher lineage. Do not relabel the
+artifact as MIT or Apache-2.0-only. See `docs/ardy-mini-integration.md` and
+the publisher's model terms and notices before using or redistributing it.
+
+The optional Mini model path is Built with Meta Llama 3.
+Meta Llama 3 is licensed under the Meta Llama 3 Community License,
+Copyright © Meta Platforms, Inc. All Rights Reserved.
+
+The native ARDY checkpoint is licensed under the NVIDIA Open Model License;
+it is also obtained separately.
+
 ## VRoid AvatarSample
 
 This repository includes VRoid sample models (`public/models/AvatarSample_VRM1.0.vrm`,

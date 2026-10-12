@@ -21,7 +21,8 @@ function rawRequest(baseUrl, path, headers = {}) {
 
 async function startServer(options = {}) {
   const { createApiServer } = await import('../src/apiServer.js');
-  const server = createApiServer(options);
+  // Never reach a locally running ARDY translator from unit tests.
+  const server = createApiServer({ translateForJev: async text => ({ text, translated: false }), ...options });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
   return {
@@ -71,7 +72,7 @@ test('healthはAPI設定状態を返す', async (t) => {
   assert.equal(body.service, 'text-to-vrma');
   assert.equal(body.generationConfigured, false);
   assert.deepEqual(body.engines, ['ardy', 'codex', 'openai', 'claude']);
-  assert.deepEqual(body.configured, { openai: false, claude: false });
+  assert.deepEqual(body.configured, { openai: false, claude: false, jev: false });
 });
 
 test('ルートURLは利用可能なAPI一覧を返す', async (t) => {
@@ -363,4 +364,237 @@ test('ARDYエンジンに接続できない場合は503を返す', async () => {
     }),
     (error) => error.status === 503 && error.code === 'ardy_unavailable'
   );
+});
+
+test('use_jev:trueでもJev未設定なら従来どおり動作する (後方互換)', async (t) => {
+  let options;
+  const api = await startServer({
+    apiKey: 'test-key',
+    generateMotion: async (_p, _k, _m, opts) => { options = opts; return sampleSpec; },
+  });
+  t.after(api.close);
+  const res = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: 'nod', use_jev: true }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(options.motionContext, null);
+});
+
+test('use_jevが非booleanなら400を返す', async () => {
+  const api = await startServer({ apiKey: 'test-key' });
+  const res = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: 'nod', use_jev: 'yes' }),
+  });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error.code, 'invalid_use_jev');
+  await api.close();
+});
+
+test('use_jev:trueかつJev設定済みなら解析結果がmotionContextとして渡る', async () => {
+  let options;
+  const fakeContext = {
+    emotion: 'joy', emotion_intensity: 0.9, reaction: 'celebrate',
+    movement_energy: 0.8, movement_scale: 'large', tempo: 'fast',
+    social_intent: 'positive', loop_preference: false, confidence: 0.95,
+  };
+  const api = await startServer({
+    apiKey: 'test-key',
+    jevApiKey: 'jev-key',
+    jevEnabled: true,
+    analyzeMotionContext: async () => fakeContext,
+    generateMotion: async (_p, _k, _m, opts) => { options = opts; return sampleSpec; },
+  });
+  const res = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: 'やったー！', use_jev: true }),
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(options.motionContext, { ...fakeContext, uncertain_fields: [] });
+  await api.close();
+});
+
+test('low aggregate confidence retains independent Jev evidence and never blocks generation', async () => {
+  let options;
+  const api = await startServer({
+    apiKey: 'test-key',
+    jevApiKey: 'jev-key',
+    jevEnabled: true,
+    jevConfidenceThreshold: 0.9,
+    analyzeMotionContext: async () => ({
+      emotion: 'joy', emotion_intensity: 0.5, reaction: 'nod',
+      movement_energy: 0.5, movement_scale: 'medium', tempo: 'normal',
+      social_intent: 'neutral', loop_preference: false, confidence: 0.3,
+    }),
+    generateMotion: async (_p, _k, _m, opts) => { options = opts; return sampleSpec; },
+  });
+  const res = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: 'まあまあかな', use_jev: true }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(options.motionContext.confidence, 0.3);
+  assert.ok(options.motionContext.uncertain_fields.includes('emotion'));
+  await api.close();
+});
+
+test('a configured Jev key is used automatically and an unreliable reaction does not discard emotion', async t => {
+  let options, analyzed;
+  const api = await startServer({
+    apiKey: '', jevApiKey: 'server-only-key',
+    analyzeMotionContext: async (text, config) => {
+      analyzed = { text, config };
+      return { emotion: 'joy', tempo: 'slow', confidence: .2,
+        confidences: { emotion: .95, tempo: .9, reaction: .2 } };
+    },
+    generateArdy: async (_prompt, opts) => { options = opts; return sampleSpec; },
+  });
+  t.after(api.close);
+  const response = await fetch(`${api.url}/v1/motions`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ engine: 'ardy', planner: 'none', prompt: 'move freely', jevApiKey: 'request-must-not-win' }) });
+  assert.equal(response.status, 200);
+  assert.equal(analyzed.config.apiKey, 'server-only-key');
+  assert.equal(analyzed.config.useCache, false);
+  assert.equal(analyzed.text, 'move freely');
+  assert.equal(options.motionContext.emotion, 'joy');
+  assert.equal(options.motionContext.confidences.emotion, .95);
+  assert.ok(!options.motionContext.uncertain_fields.includes('emotion'));
+  assert.ok(!options.plannerRequest, 'ARDY-only must not invoke Codex to obtain Jev assistance');
+  const output = await response.json();
+  assert.equal(output.spec.jevContext.confidences.emotion, .95);
+  assert.equal(output.spec.jevContext.reaction, undefined);
+  assert.equal((await (await fetch(`${api.url}/health`)).json()).configured.jev, true);
+});
+
+test('explicit request or operator opt-out prevents Jev calls and request credentials cannot enable it', async t => {
+  for (const [config, request] of [
+    [{ jevApiKey: 'key' }, { use_jev: false }],
+    [{ jevApiKey: 'key', jevEnabled: false }, { use_jev: true }],
+    [{ jevApiKey: '' }, { use_jev: true, jevApiKey: 'injected', JEV_API_KEY: 'injected' }],
+  ]) {
+    let count = 0, options;
+    const api = await startServer({ apiKey: 'test-key', ...config,
+      analyzeMotionContext: async () => { count++; throw new Error('must not run'); },
+      generateMotion: async (_p, _k, _m, opts) => { options = opts; return sampleSpec; } });
+    t.after(api.close);
+    const response = await fetch(`${api.url}/v1/motions`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'move freely', ...request }) });
+    assert.equal(response.status, 200);
+    assert.equal(count, 0);
+    assert.equal(options.motionContext, null);
+  }
+});
+
+test('optional Jev provider failure preserves ordinary generation without leaking keys', async t => {
+  let options;
+  const api = await startServer({ apiKey: 'test-key', jevApiKey: 'private-key',
+    analyzeMotionContext: async () => { throw new Error('failed private-key'); },
+    generateMotion: async (_p, _k, _m, opts) => { options = opts; return sampleSpec; } });
+  t.after(api.close);
+  const response = await fetch(`${api.url}/v1/motions`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: 'move freely' }) });
+  assert.equal(response.status, 200);
+  assert.equal(options.motionContext, null);
+  assert.ok(!(await response.text()).includes('private-key'));
+});
+
+test('ARDY-only and planned generation send sanitized Jev evidence without replacing motion text', async () => {
+  const { generateMotionWithArdy } = await import('../src/apiServer.js');
+  const motionContext = { reaction: 'celebrate', tempo: 'slow', confidence: .9,
+    affect: { happy: { value: .6, confidence: .8 } }, apiKey: 'private-key', arbitrary: 'instruction injection' };
+  for (const planned of [false, true]) {
+    let body;
+    const result = await generateMotionWithArdy('balance freely', {
+      motionContext,
+      ...(planned ? { plannerRequest: async () => JSON.stringify({ segments: [{ text: 'Balance on one foot.', duration: 2 }] }) } : {}),
+      fetchImpl: async (_url, options) => {
+        body = JSON.parse(options.body);
+        return { ok: true, json: async () => structuredClone({ ...sampleSpec, duration: 2 }) };
+      },
+    });
+    assert.equal(planned ? body.segments[0].text : body.text, planned ? 'Balance on one foot.' : 'balance freely');
+    assert.equal(body.motionContext.tempo, 'slow');
+    assert.equal(body.motionContext.confidences.tempo, .9);
+    assert.equal(body.motionContext.reaction, undefined);
+    assert.deepEqual(result.jevContext, body.motionContext);
+    assert.ok(!JSON.stringify(body).includes('private-key'));
+    assert.ok(!JSON.stringify(body).includes('instruction injection'));
+    assert.ok(result.expressions.happy[0].w > 0);
+    assert.equal(result.expressions.happy.at(-1).w, 0, 'start-only affect must not replace the entire performance');
+  }
+});
+
+test('/v1/motion-contextはJev未設定なら503を返す', async () => {
+  const api = await startServer({ apiKey: 'test-key' });
+  const res = await fetch(`${api.url}/v1/motion-context`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'こんにちは' }),
+  });
+  assert.equal(res.status, 503);
+  assert.equal((await res.json()).error.code, 'jev_not_configured');
+  await api.close();
+});
+
+test('/v1/motion-contextはJev設定済みなら解析結果を返す', async () => {
+  const fakeContext = {
+    emotion: 'surprise', emotion_intensity: 0.8, reaction: 'startled',
+    movement_energy: 0.7, movement_scale: 'large', tempo: 'fast',
+    social_intent: 'neutral', loop_preference: false, confidence: 0.9,
+  };
+  const api = await startServer({
+    apiKey: 'test-key',
+    jevApiKey: 'jev-key',
+    analyzeMotionContextStrict: async (text) => { assert.equal(text, 'えっ！？本当に！？'); return fakeContext; },
+  });
+  const res = await fetch(`${api.url}/v1/motion-context`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'えっ！？本当に！？' }),
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), fakeContext);
+  await api.close();
+});
+
+test('/v1/motion-context honors an explicit server opt-out', async t => {
+  let called = false;
+  const api = await startServer({ jevApiKey: 'server-key', jevEnabled: false,
+    analyzeMotionContextStrict: async () => { called = true; return {}; } });
+  t.after(api.close);
+  const response = await fetch(`${api.url}/v1/motion-context`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'free motion', jevEnabled: true }) });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, 'jev_disabled');
+  assert.equal(called, false);
+});
+
+test('the local API rejects previous-generation Claude models instead of calling them', async (t) => {
+  let called = false;
+  const api = await startServer({ apiKey: '', claudeApiKey: 'claude-key',
+    generateClaude: async () => { called = true; return sampleSpec; } });
+  t.after(api.close);
+  const response = await fetch(`${api.url}/v1/motions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: '手を振る', engine: 'claude', model: 'claude-opus-5' }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code ?? 'invalid_model', 'invalid_model');
+  assert.equal(called, false);
+});
+
+test('the local API sends Jev the English translation and can be configured to keep the original', async t => {
+  for (const [jevTranslate, expected] of [[true, 'Wave happily.'], [false, '嬉しそうに手を振る']]) {
+    let analyzed;
+    const api = await startServer({
+      apiKey: '', jevApiKey: 'key', jevTranslate,
+      translateForJev: async (text, { enabled }) => enabled ? { text: 'Wave happily.', translated: true } : { text, translated: false },
+      analyzeMotionContext: async text => { analyzed = text; return { emotion: 'joy', confidence: .9, confidences: { emotion: .9 } }; },
+      generateArdy: async () => sampleSpec,
+    });
+    t.after(api.close);
+    const response = await fetch(`${api.url}/v1/motions`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine: 'ardy', planner: 'none', prompt: '嬉しそうに手を振る' }) });
+    assert.equal(response.status, 200);
+    assert.equal(analyzed, expected);
+  }
 });

@@ -1,6 +1,7 @@
 // autoExpressions.js — プロンプトの感情語から表情トラックを自動生成する
 // (ARDYモード用: ARDYはボーンモーションのみで表情を作らないため、ここで補う)
 import { emotionDynamics } from './emotionActing.js';
+import { naturalBlinks, speechMouth } from './facialPerformance.js';
 
 // 感情語 → VRM表情プリセット。上から順に最初にマッチした1つを採用
 const EMOTION_RULES = [
@@ -17,8 +18,13 @@ const EMOTION_RULES = [
   { re: /disgust|disdain|嫌悪|嫌が|うんざり|呆れ|厌恶|싫어|혐오/i, preset: 'angry', weight: .35, blend: {sad:.2} },
 ];
 
-const BLINK_INTERVAL = 3.2; // 秒
-const BLINK_CLOSE = 0.08;   // 閉じるのにかかる時間
+
+function weightAt(keys, t) {
+  const right = keys.findIndex(k => k.t >= t);
+  if (right <= 0) return right === 0 ? keys[0].w : keys.at(-1)?.w ?? 0;
+  const a = keys[right - 1], b = keys[right];
+  return a.w + (b.w - a.w) * (t - a.t) / Math.max(1e-9, b.t - a.t);
+}
 
 /**
  * プロンプトとモーション長から表情トラックを作る。
@@ -42,7 +48,7 @@ export function autoExpressions(text, duration, forcedPreset = null, segments = 
     for(const [i,clause] of clauses.entries()){
       const matches=EMOTION_RULES.map(rule=>({rule,index:clause.search(rule.re)})).filter(m=>m.index>=0).sort((a,b)=>a.index-b.index);
       const mixed=matches.length>1&&/けど|けれど|ながら|つつ|\b(?:but|yet|while)\b/i.test(clause)&&matches[0].rule.preset!=='neutral';
-      phases.push({start:offset+span*i/clauses.length,end:offset+span*(i+1)/clauses.length,rule:matches[0]?.rule,secondary:mixed?matches[1].rule:null,dynamics:emotionDynamics(clause)});
+      phases.push({start:offset+span*i/clauses.length,end:offset+span*(i+1)/clauses.length,text:clause,rule:matches[0]?.rule,secondary:mixed?matches[1].rule:null,dynamics:emotionDynamics(clause)});
     }
     offset+=span;
   }
@@ -70,16 +76,16 @@ export function autoExpressions(text, duration, forcedPreset = null, segments = 
     expressions[preset]=[...new Map(keys.map(k=>[k.t,k])).values()].sort((a,b)=>a.t-b.t);
   }
 
-  // まばたき: 一定間隔で閉じる (最初と最後の0.5秒は避ける)
-  const blink = [{ t: 0, w: 0 }];
-  for (let t = BLINK_INTERVAL; t < duration - 0.5; t += BLINK_INTERVAL) {
-    blink.push(
-      { t: t - BLINK_CLOSE, w: 0 },
-      { t, w: 1 },
-      { t: t + BLINK_CLOSE, w: 0 },
-    );
-  }
-  if (blink.length > 1) expressions.blink = blink;
+  // 話す動作の区間に口の動きを付ける。区間の文章 (英語キャプション等) に
+  // 話す手掛かりが無ければ、原文全体から時間配分する
+  const mouth = Object.keys(speechMouth(text, duration, phases)).length ? speechMouth(text, duration, phases) : speechMouth(text, duration);
+  Object.assign(expressions, mouth);
+
+  // まばたき: 一定間隔ではなく自然なばらつきで。驚きの表情が強い間は目を見開いたままにする
+  const surprised = expressions.surprised;
+  const blink = naturalBlinks(duration, { seed: text,
+    suppressAt: t => Boolean(surprised) && weightAt(surprised, t) > 0.5 });
+  if (blink) expressions.blink = blink;
 
   return expressions;
 }

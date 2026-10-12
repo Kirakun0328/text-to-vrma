@@ -2,18 +2,30 @@ import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { CodexClient } from '../electron/codex-client.cjs';
+import { englishForJev } from './jevTranslate.js';
 import { buildVRMA } from './vrmaBuilder.js';
 import { autoExpressions } from './autoExpressions.js';
 import { rescaleSpec, isLoopFriendly } from './specMerge.js';
 import {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_CLAUDE_MODEL,
+  CLAUDE_MODELS,
   generateMotionWithOpenAI,
   generateMotionWithClaude,
   planArdySegments,
   setApiBase,
   SYSTEM_PROMPT, REFINE_INSTRUCTION, validateSpec, callClaude,
+  formatMotionContextBlock,
 } from './llm.js';
+import {
+  DEFAULT_JEV_MODEL,
+  DEFAULT_JEV_CONFIDENCE_THRESHOLD,
+  DEFAULT_JEV_TIMEOUT_MS,
+  analyzeMotionContext,
+  analyzeMotionContextStrict,
+  softenUncertainContext,
+} from './jevAnalyzer.js';
+import { toMotionSemanticContext, applyJevExpressions } from './jevMotionContext.js';
 
 const JSON_LIMIT = 1024 * 1024;
 const DEFAULT_ARDY_URL = 'http://127.0.0.1:2337';
@@ -25,7 +37,7 @@ async function codexRequest(messages, _key, model, _delta, options = {}) {
   finally { client.close(); }
 }
 
-export async function generateMotionWithCodexHttp(prompt, model, { refine = true, speed } = {}) {
+export async function generateMotionWithCodexHttp(prompt, model, { refine = true, speed, motionContext } = {}) {
   const client = new CodexClient({ cwd: tmpdir() });
   try {
     const status = await client.getStatus();
@@ -34,7 +46,8 @@ export async function generateMotionWithCodexHttp(prompt, model, { refine = true
       error.status = 503; error.code = 'codex_not_authenticated'; throw error;
     }
     const spec = await client.generateMotion({ model, systemPrompt: SYSTEM_PROMPT,
-      prompt: prompt + (speed === 'fast' ? '\n速度優先。主役の関節に絞り1ボーン最大8キー。コンパクトJSONで返す。' : ''),
+      prompt: prompt + (speed === 'fast' ? '\n速度優先。主役の関節に絞り1ボーン最大8キー。コンパクトJSONで返す。' : '') +
+        formatMotionContextBlock(motionContext),
       refinePrompt: REFINE_INSTRUCTION, refine, speed });
     validateSpec(spec); return spec;
   } finally { client.close(); }
@@ -73,6 +86,7 @@ export async function generateMotionWithArdy(text, {
   waypoints = null,
   fetchImpl = fetch,
   plannerRequest,
+  motionContext,
 } = {}) {
   const base = String(ardyUrl).replace(/\/+$/, '');
 
@@ -80,7 +94,7 @@ export async function generateMotionWithArdy(text, {
   let plan = null;
   if (apiKey || plannerRequest) {
     try {
-      plan = await planArdySegments(text, apiKey, model, plannerRequest ? { request: plannerRequest, verify: false } : {});
+      plan = await planArdySegments(text, apiKey, model, plannerRequest ? { request: plannerRequest, verify: false, motionContext } : { motionContext });
     } catch (error) {
       if (error.code === 'ARDY_INVALID_PLAN') throw error;
       console.warn('[Text-To-VRMA API] ARDYの動作分割に失敗、原文のまま生成します:', error.message);
@@ -90,6 +104,8 @@ export async function generateMotionWithArdy(text, {
   const body = plan?.segments?.length
     ? { segments: plan.segments.map((s) => ({ text: s.text, duration: s.duration })) }
     : { text };
+  const semanticContext = toMotionSemanticContext(motionContext);
+  if (semanticContext) body.motionContext = semanticContext;
   if (Array.isArray(waypoints) && waypoints.length) {
     body.waypoints = waypoints.map((w) => ({ x: Number(w?.x) || 0, z: Number(w?.z) || 0 }));
   }
@@ -128,6 +144,7 @@ export async function generateMotionWithArdy(text, {
   }
 
   const spec = await res.json();
+  if (semanticContext) spec.jevContext = semanticContext;
   spec.planning = { used: Boolean(plan) };
   if (plan) spec.originalText = text;
   if (plan) spec.motionPlan = {segments:plan.segments,checks:plan.checks};
@@ -136,7 +153,7 @@ export async function generateMotionWithArdy(text, {
   if (forceDur) rescaleSpec(spec, duration);
   // ARDYは表情を作らないので補う (GPTの感情判定があれば優先)
   spec.expressions = autoExpressions(spec.originalText ?? text, spec.duration, plan?.expression, plan?.segments);
-  return spec;
+  return applyJevExpressions(spec, semanticContext, { preserveAuthored: Boolean(plan?.expression) });
 }
 
 function json(res, status, body, extraHeaders = {}) {
@@ -215,6 +232,7 @@ function openApiDocument() {
                   type: 'array', description: 'ardyのみ: 移動経路 (床座標)',
                   items: { type: 'object', properties: { x: { type: 'number' }, z: { type: 'number' } } },
                 },
+                use_jev: { type: 'boolean', default: true, description: 'サーバーにJevが設定されていれば自動で意味・感情を解析して補助する。falseでこの生成では無効。未設定や解析失敗でも通常生成を続ける。' },
               },
             } } },
           },
@@ -226,6 +244,23 @@ function openApiDocument() {
           summary: 'Convert an existing motion spec to VRMA',
           requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
           responses: { 200: { description: 'VRMA binary' } },
+        },
+      },
+      '/v1/motion-context': {
+        post: {
+          summary: 'Jev (TypeSafe AI) でテキストの意味・感情のみを解析する (モーションは生成しない)',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: {
+              type: 'object', required: ['text'],
+              properties: { text: { type: 'string', maxLength: 4000 } },
+            } } },
+          },
+          responses: {
+            200: { description: 'MotionContext' },
+            400: { description: 'Invalid request' },
+            503: { description: 'Jev not configured' },
+          },
         },
       },
     },
@@ -241,7 +276,8 @@ export function createApiServer({
   apiToken = process.env.TEXT_TO_MOTION_API_TOKEN || '',
   apiBase = process.env.OPENAI_BASE_URL || '',
   defaultModel = process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
-  defaultClaudeModel = process.env.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL,
+  // 旧世代のモデルが環境変数に残っていても使わない
+  defaultClaudeModel = CLAUDE_MODELS.includes(process.env.ANTHROPIC_MODEL) ? process.env.ANTHROPIC_MODEL : DEFAULT_CLAUDE_MODEL,
   corsOrigin = process.env.TEXT_TO_MOTION_CORS_ORIGIN || '',
   ardyUrl = process.env.ARDY_URL || DEFAULT_ARDY_URL,
   generateMotion = generateMotionWithOpenAI,
@@ -249,6 +285,17 @@ export function createApiServer({
   generateArdy = generateMotionWithArdy,
   generateCodex = generateMotionWithCodexHttp,
   build = buildVRMA,
+  // A configured key enables Jev by default; an operator's explicit opt-out wins.
+  jevApiKey = process.env.JEV_API_KEY || '',
+  jevEnabled = process.env.JEV_ENABLED !== 'false',
+  jevModel = process.env.JEV_MODEL || DEFAULT_JEV_MODEL,
+  jevTimeoutMs = Number(process.env.JEV_TIMEOUT_MS) || DEFAULT_JEV_TIMEOUT_MS,
+  jevConfidenceThreshold = Number(process.env.JEV_CONFIDENCE_THRESHOLD) || DEFAULT_JEV_CONFIDENCE_THRESHOLD,
+  analyzeMotionContext: analyzeMotionContextImpl = analyzeMotionContext,
+  analyzeMotionContextStrict: analyzeMotionContextStrictImpl = analyzeMotionContextStrict,
+  // JEV_TRANSLATE=0 で英訳せず原文のままJevへ送る
+  jevTranslate = process.env.JEV_TRANSLATE !== '0',
+  translateForJev = englishForJev,
 } = {}) {
   setApiBase(apiBase);
 
@@ -324,11 +371,12 @@ export function createApiServer({
             openapi: 'GET /openapi.json',
             generate: 'POST /v1/motions',
             convert: 'POST /v1/vrma',
+            analyzeMotionContext: 'POST /v1/motion-context',
           },
           engines: ENGINES,
           // generationConfigured は openai 用 (旧クライアント互換)。エンジン別は configured を見る
           generationConfigured: Boolean(apiKey),
-          configured: { openai: Boolean(apiKey), claude: Boolean(claudeApiKey) },
+          configured: { openai: Boolean(apiKey), claude: Boolean(claudeApiKey), jev: Boolean(jevApiKey && jevEnabled) },
           ardyUrl,
         }, corsHeaders);
         return;
@@ -342,7 +390,7 @@ export function createApiServer({
           // openai/claudeはキー必須、ardyはローカルエンジンが起動していれば使える。
           // generationConfigured は openai 用 (旧クライアント互換)
           generationConfigured: Boolean(apiKey),
-          configured: { openai: Boolean(apiKey), claude: Boolean(claudeApiKey) },
+          configured: { openai: Boolean(apiKey), claude: Boolean(claudeApiKey), jev: Boolean(jevApiKey && jevEnabled) },
           ardyUrl,
         }, corsHeaders);
         return;
@@ -398,11 +446,35 @@ export function createApiServer({
           apiError(res, 400, 'waypointsは配列で指定してください', 'invalid_waypoints', corsHeaders);
           return;
         }
+        if (body.use_jev !== undefined && typeof body.use_jev !== 'boolean') {
+          apiError(res, 400, 'use_jevはbooleanで指定してください', 'invalid_use_jev', corsHeaders);
+          return;
+        }
+
+        // Credentials come only from server configuration, never the request.
+        // Uncertain fields must not discard independently reliable evidence.
+        let motionContext = null;
+        if (body.use_jev !== false && jevEnabled && jevApiKey) {
+          try {
+            const source = await translateForJev(prompt, { ardyUrl, enabled: jevTranslate });
+            motionContext = softenUncertainContext(await analyzeMotionContextImpl(source.text, {
+              apiKey: jevApiKey, model: jevModel, timeoutMs: jevTimeoutMs, useCache: false,
+            }), jevConfidenceThreshold);
+          } catch {
+            // Jev is optional even if an injected/provider analyzer throws.
+            motionContext = null;
+          }
+        }
 
         // ardyの既定モデルは動作分割 (GPTが頭) に使うのでOpenAI側の既定を流用する
         const model = typeof body.model === 'string' && body.model.trim()
           ? body.model.trim()
           : (engine === 'claude' || (engine === 'ardy' && body.planner === 'claude') ? defaultClaudeModel : defaultModel);
+        if ((engine === 'claude' || (engine === 'ardy' && body.planner === 'claude'))
+            && typeof body.model === 'string' && body.model.trim() && !CLAUDE_MODELS.includes(model)) {
+          apiError(res, 400, `Claudeのmodelは${CLAUDE_MODELS.join(' / ')}のいずれかを指定してください`, 'invalid_model', corsHeaders);
+          return;
+        }
         let spec;
         if (engine === 'ardy') {
           const planner = body.planner ?? 'codex';
@@ -413,19 +485,25 @@ export function createApiServer({
             model,
             duration: body.duration ?? 0,
             waypoints: body.waypoints ?? null,
+            motionContext,
           });
         } else if (engine === 'codex') {
-          spec = await generateCodex(prompt, model, { refine: body.refine ?? body.speed !== 'fast', speed: body.speed });
+          spec = await generateCodex(prompt, model, { refine: body.refine ?? body.speed !== 'fast', speed: body.speed, motionContext });
         } else if (engine === 'claude') {
           spec = await generateClaude(prompt, claudeApiKey, model, {
             refine: body.refine !== false,
+            motionContext,
           });
         } else {
           spec = await generateMotion(prompt, apiKey, model, {
             refine: body.refine ?? body.speed !== 'fast',
             ...(body.speed ? { speed: body.speed } : {}),
+            motionContext,
           });
         }
+
+        const semanticContext = toMotionSemanticContext(motionContext);
+        if (semanticContext) spec = { ...spec, jevContext: semanticContext };
 
         if (body.format === 'vrma') {
           const payload = Buffer.from(build(spec));
@@ -448,6 +526,29 @@ export function createApiServer({
           model: engine === 'ardy' && !spec.planning?.used ? null : model,
           spec,
         }, corsHeaders);
+        return;
+      }
+
+      if (req.method === 'POST' && requestUrl.pathname === '/v1/motion-context') {
+        if (!jevApiKey) {
+          apiError(res, 503, 'サーバーにJEV_API_KEYが設定されていません', 'jev_not_configured', corsHeaders);
+          return;
+        }
+        if (!jevEnabled) {
+          apiError(res, 503, 'サーバー設定でJevが無効になっています', 'jev_disabled', corsHeaders);
+          return;
+        }
+        const body = await readJson(req);
+        const text = typeof body.text === 'string' ? body.text.trim() : '';
+        if (!text || text.length > 4000) {
+          apiError(res, 400, 'textは1〜4000文字で指定してください', 'invalid_text', corsHeaders);
+          return;
+        }
+        const source = await translateForJev(text, { ardyUrl, enabled: jevTranslate });
+        const motionContext = await analyzeMotionContextStrictImpl(source.text, {
+          apiKey: jevApiKey, model: jevModel, timeoutMs: jevTimeoutMs,
+        });
+        json(res, 200, motionContext, corsHeaders);
         return;
       }
 
