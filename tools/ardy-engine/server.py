@@ -22,6 +22,7 @@ import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 JP_RE = re.compile(r"[぀-ヿ一-鿿]")
 TRANSLATOR_MODEL = "staka/fugumt-ja-en"
@@ -690,16 +691,87 @@ def generate_spec(
 
 
 # CORSを許可する呼び出し元 (アプリ本体 app:// / ローカル開発 / file://) のみに限定する。
-# 無関係なWebサイトから 127.0.0.1:2337 を叩かれてGPU/メモリを消費されるのを防ぐ
-_ALLOWED_ORIGIN_PREFIXES = ("app://", "http://localhost", "http://127.0.0.1", "file://")
+# 無関係なWebサイトから 127.0.0.1:2337 を叩かれてGPU/メモリを消費されるのを防ぐ。
+# 外部フロントエンド (Cloudflare Quick Tunnel 等の https オリジン) を許可したい場合は
+# 起動前に環境変数 ARDY_ALLOWED_ORIGINS にオリジンをカンマ区切りで指定する。
+
+
+def _is_local_origin(origin):
+    """アプリ/ローカル由来のオリジンかを厳密一致で判定する。
+
+    ホスト名の前方一致ではなく urlparse の結果全体を検証する。
+    http://localhost.evil.example は "localhost" で始まってもローカルではない。
+    認証情報・パス・クエリ・フラグメントを持つオリジン、ポート表記が不正なオリジンは弾く。
+    """
+    if not origin or origin != origin.strip():
+        return False
+    if origin.startswith(("app://", "file://")):
+        return True
+    try:
+        parsed = urlparse(origin)
+        parsed.port  # 不正なポート指定は ValueError に
+        return (parsed.scheme in {"http", "https"}
+                and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+                and parsed.username is None and parsed.password is None
+                and not parsed.path and not parsed.params
+                and not parsed.query and not parsed.fragment)
+    except ValueError:
+        return False
+
+
+# ARDY_ALLOWED_ORIGINS の解析結果キャッシュ (環境変数の値が変わったら作り直す)
+_CONFIGURED_ORIGINS = {"raw": None, "origins": frozenset()}
+
+
+def _log_cors(message):
+    """CORS設定ログ。Windowsのcp1252等でも print が壊れないようASCIIへ落として出力する"""
+    print(message.encode("ascii", "backslashreplace").decode("ascii"), flush=True)
+
+
+def _configured_origins():
+    """環境変数 ARDY_ALLOWED_ORIGINS (カンマ区切り) に列挙された有効な https オリジン。
+
+    各項目はオリジン形式 (https://host[:port]) のみ受理し、http 指定・認証情報・
+    パス・クエリ・フラグメントを含む項目や不正なポート表記は無視する (設定ミスはログに出る)。
+    起動後も値を読み直すので、リクエスト前に環境変数を設定すれば反映される。
+    """
+    raw = os.environ.get("ARDY_ALLOWED_ORIGINS", "")
+    cache = _CONFIGURED_ORIGINS
+    if cache["raw"] == raw:
+        return cache["origins"]
+    allowed = set()
+    for part in raw.split(","):
+        entry = part.strip()
+        if not entry:
+            continue
+        try:
+            parsed = urlparse(entry)
+            parsed.port  # 不正なポート指定は ValueError に
+        except ValueError:
+            _log_cors(f"[cors] ignoring invalid ARDY_ALLOWED_ORIGINS entry: {entry!r}")
+            continue
+        if (parsed.scheme == "https" and parsed.hostname
+                and parsed.username is None and parsed.password is None
+                and not parsed.path and not parsed.params
+                and not parsed.query and not parsed.fragment):
+            allowed.add(entry)
+        else:
+            _log_cors(f"[cors] ignoring non-https-origin ARDY_ALLOWED_ORIGINS entry: {entry!r}")
+    cache["raw"], cache["origins"] = raw, frozenset(allowed)
+    return cache["origins"]
 # リクエストボディの上限 (巨大bodyによるメモリ枯渇DoS対策)
 MAX_REQUEST_BYTES = 8 * 1024 * 1024  # 8MB
 
 
 class Handler(BaseHTTPRequestHandler):
     def _cors_origin(self) -> str:
+        # 許可されたオリジンそのものだけを応答ヘッダに返す (* は使わない)。
+        # ローカル/アプリ起因、または ARDY_ALLOWED_ORIGINS に明示列挙された
+        # https オリジンのみ許可。それ以外は "null" (クロスオリジン読み取り拒否)
         o = self.headers.get("Origin", "")
-        return o if o.startswith(_ALLOWED_ORIGIN_PREFIXES) else "null"
+        if _is_local_origin(o) or o in _configured_origins():
+            return o
+        return "null"
 
     def _send(self, code: int, payload: dict):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

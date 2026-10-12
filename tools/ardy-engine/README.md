@@ -83,6 +83,27 @@ Python 3.10+ と git が必要です。ダウンロード合計約20GBのため�
 - `GET /health` → `{"status":"ok","model":...,"device":...,"translator":...}`
 - `POST /generate` `{"text":"お辞儀する","duration":4}` → モーションspec JSON
 
+## CORS (外部Webフロントから接続する場合)
+
+既定では `app://bundle` / `localhost` / `127.0.0.1` / `::1` / `file://` からのリクエストだけを
+許可します。クラウド (Kaggle 等) で起動したエンジンを Cloudflare Quick Tunnel 等の **https
+フロントエンド**から利用する場合は、**起動前に**環境変数 `ARDY_ALLOWED_ORIGINS` にフロントの
+オリジンをカンマ区切りで指定してください (URL はオリジン形式 `https://host[:port]` のみ。
+認証情報・パス・クエリ・フラグメントを含む値は無視されます)。
+
+```bash
+# Kaggle の起動セル等で server.py の実行前に設定
+export ARDY_ALLOWED_ORIGINS="https://your-frontend.trycloudflare.com"
+<venvのpython> tools/ardy-engine/server.py --merged-base <パス>
+```
+
+- 許可は**完全一致**のみ。`Access-Control-Allow-Origin` は要求元オリジンそのものを返し、
+  `*` にはなりません。未指定・未登録のオリジンは `null` で拒否されます。
+- 不正な項目は `[cors] ignoring ...` としてログに出力され、無視されます。
+- サーバーは従来通り `127.0.0.1` のみに bind し、リクエストサイズ上限等の防御も変わりません。
+
+CORS ロジックのテスト (モデル・GPU 不要): `python tools/ardy-engine/test_cors.py`
+
 ## 量子化 (4-bit / 8-bit)  [実験的]
 
 llm2vec-base-merged (~16GB bf16) を bitsandbytes で量子化し、VRAM / ディスクを大幅削減できます。
