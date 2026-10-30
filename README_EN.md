@@ -486,168 +486,151 @@ This is a local API server designed to invoke Text-To-VRMA from other applicatio
 You can send text from Unity, Blender, custom tools, or shell scripts, and receive motion specs or `.vrma` files.
 
 
-
 ```bash
-cp .env.example .env   # 初回のみ。OPENAI_API_KEY を書いておく (ARDYだけなら不要)
-npm run api            # http://127.0.0.1:8787 で起動
+cp .env.example .env   # First time only. Set OPENAI_API_KEY (not needed if using ARDY only)
+npm run api            # Start server at http://127.0.0.1:8787
 ```
 
-`.env` はリポジトリ直下に置けば起動時に自動で読まれます (Gitには入りません)。
-起動すると、どのエンジンが今すぐ使えるかが表示されます:
+If you place `.env` directly under the repository root, it will be automatically read upon startup (it is not tracked by Git).
+When started, it displays which engines are currently available:
 
 ```text
-.env を読み込みました
+Loaded .env
 Text-To-VRMA API listening on http://127.0.0.1:8787
-  engine=openai : 未設定 (.env に OPENAI_API_KEY を設定してください)
-  engine=claude : 未設定 (.env に ANTHROPIC_API_KEY を設定してください)
-  engine=ardy   : 利用可能 (ARDY-Core-RP-20FPS-Horizon40 / GPU)
+  engine=openai : Not configured (Please set OPENAI_API_KEY in .env)
+  engine=claude : Not configured (Please set ANTHROPIC_API_KEY in .env)
+  engine=ardy   : Available (ARDY-Core-RP-20FPS-Horizon40 / GPU)
 ```
 
-`engine=ardy` は**APIキーなしで使えます** (ARDYローカルエンジンの起動が必要)。
-`engine=openai` / `engine=claude` はキーが要りますが、ARDYのセットアップは不要です。
+`engine=ardy` **can be used without an API key** (requires starting the ARDY local engine).
+`engine=openai` / `engine=claude` require keys, but do not require ARDY setup.
 
-### デスクトップ版から使う (v1.1.7〜)
+### Using from the Desktop App (v1.1.7+)
 
-コマンドを使わず、アプリの「詳細設定 → ローカルHTTP API」から有効にできます。
-**既定はオフ**で、チェックを入れたときだけ 127.0.0.1 にポートを開きます。
+Without using commands, you can enable it from the app's "Advanced Settings → Local HTTP API".
+It is **disabled by default** and only opens the port on 127.0.0.1 when checked.
 
-- アプリに設定済みの OpenAI / Claude のキーをそのまま使うので、二重の設定は不要です
-- **アクセストークンが必須**です。設定欄に表示されるので、呼び出す側の
-  `Authorization: Bearer <token>` に指定してください。インストールごとに固定なので
-  外部ツール側は一度書けば済みます。漏れた場合は「🔄 再生成」で無効化できます
-- ポートが使用中の場合はその旨を表示します (別のポートを指定してください)
+- It uses the OpenAI / Claude keys already configured in the app as-is, so duplicate configuration is unnecessary.
+- **An access token is required**. Since it is displayed in the settings field, please specify it on the calling side as `Authorization: Bearer <token>`. Because it remains fixed per installation, external tools only need to configure it once. If compromised, you can invalidate it via "🔄 Regenerate".
+- If the port is in use, a notification will be displayed (please specify a different port).
 
 ```bash
 curl -X POST http://127.0.0.1:8787/v1/motions \
-  -H "Authorization: Bearer <アプリに表示されたトークン>" \
+  -H "Authorization: Bearer <token displayed in app>" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"前に歩いて手を振る","engine":"ardy","format":"vrma"}' \
+  -d '{"prompt":"walk forward and wave hand","engine":"ardy","format":"vrma"}' \
   -o walk.vrma
 ```
 
-### セキュリティ
+### Security
 
-**既定では 127.0.0.1 のみで待ち受ける**ため、同じPC上のアプリからのみ到達できます。
-外部へ公開する場合は `TEXT_TO_MOTION_API_TOKEN` の設定が必須で、未設定なら起動時に
-エラーになります (その場合は全リクエストに `Authorization: Bearer <token>` が必要)。
+**By default, it listens exclusively on 127.0.0.1**, so it is only accessible from apps on the same PC.
+When exposing externally, setting `TEXT_TO_MOTION_API_TOKEN` is mandatory; if unconfigured, it will result in an error upon startup (in which case `Authorization: Bearer <token>` is required for all requests).
 
-| エンドポイント | 説明 |
+| Endpoint | Description |
 | --- | --- |
-| `GET /health` | 稼働状態・利用可能エンジン・キー設定の有無 |
-| `GET /openapi.json` | OpenAPI 3.1 定義 |
-| `POST /v1/motions` | テキストからモーションを生成 |
-| `POST /v1/vrma` | 既存の spec を `.vrma` に変換 (キー不要) |
-| `POST /v1/motion-context` | Jevで意味・感情のみを解析 (Jev設定時のみ。下記参照) |
+| `GET /health` | Operational status, available engines, and key configuration status |
+| `GET /openapi.json` | OpenAPI 3.1 definition |
+| `POST /v1/motions` | Generate motion from text |
+| `POST /v1/vrma` | Convert existing spec to `.vrma` (no key required) |
+| `POST /v1/motion-context` | Analyze meaning and emotion only via Jev (Only when Jev is configured; see below) |
 
-`POST /v1/motions` のリクエスト:
+`POST /v1/motions` requests:
 
-| フィールド | 既定 | 説明 |
+| Field | Default | Description |
 | --- | --- | --- |
-| `prompt` | (必須) | 動きの指示。1〜4000文字 |
-| `engine` | `openai` | `openai` / `claude` / `codex` = LLMキーフレーム / `ardy` = ARDYローカルエンジン |
-| `planner` | `codex` | `ardy` のみ: 動作計画に使うAI (`codex` / `openai` / `claude` / `none`) |
-| `speed` | — | `openai` / `codex`: `fast` / `balanced` / `quality`。`fast` は推論量とキー数を抑える |
-| `format` | `json` | `json` は spec、`vrma` は `.vrma` バイナリを返す |
-| `model` | 環境変数 | `openai`・`claude` では生成モデル、`ardy` では動作分割に使うGPTモデル |
-| `refine` | `true` | `openai`・`claude` で有効な2パス自己修正 |
-| `duration` | — | `ardy` のみ: 生成する長さ (秒) |
-| `waypoints` | — | `ardy` のみ: 移動経路 `[{ "x": 1, "z": 2 }]` |
-| `use_jev` | キー設定時に自動 | Jevで意味・感情を解析し補助情報として使う。`false` はリクエスト単位で無効。サーバーにJevが未設定なら従来どおり生成 |
+| `prompt` | (Required) | Motion instruction. 1 to 4,000 characters |
+| `engine` | `openai` | `openai` / `claude` / `codex` = LLM Keyframe / `ardy` = ARDY Local Engine |
+| `planner` | `codex` | `ardy` only: AI used for action planning (`codex` / `openai` / `claude` / `none`) |
+| `speed` | — | `openai` / `codex`: `fast` / `balanced` / `quality`. `fast` reduces reasoning volume and key count |
+| `format` | `json` | `json` returns spec, `vrma` returns `.vrma` binary |
+| `model` | Environment variable | Generative model for `openai`/`claude`, GPT model used for action splitting in `ardy` |
+| `refine` | `true` | Two-pass self-correction enabled for `openai` and `claude` |
+| `duration` | — | `ardy` only: Generated length in seconds |
+| `waypoints` | — | `ardy` only: Movement path `[{ "x": 1, "z": 2 }]` |
+| `use_jev` | Automatic when key is set | Analyzes meaning and emotion with Jev and uses it as auxiliary information. `false` disables it per request. If Jev is unconfigured on the server, generation proceeds as usual |
 
 ```bash
-# ARDYローカルエンジンで生成 (APIキー不要。エンジンの起動が必要)
+# Generate with ARDY local engine (No API key required; engine startup required)
 curl -X POST http://127.0.0.1:8787/v1/motions \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"前に歩いて手を振る","engine":"ardy","format":"vrma"}' \
+  -d '{"prompt":"walk forward and wave hand","engine":"ardy","format":"vrma"}' \
   -o walk.vrma
 
-# OpenAI APIキーで生成 (サーバー起動時に OPENAI_API_KEY が必要)
+# Generate with OpenAI API key (OPENAI_API_KEY required at server startup)
 curl -X POST http://127.0.0.1:8787/v1/motions \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"お辞儀する"}'
+  -d '{"prompt":"bow"}'
 ```
 
 ```bash
-# Claude で生成 (サーバー起動時に ANTHROPIC_API_KEY が必要)
+# Generate with Claude (ANTHROPIC_API_KEY required at server startup)
 curl -X POST http://127.0.0.1:8787/v1/motions \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"お辞儀する","engine":"claude","model":"claude-sonnet-5-5"}'
+  -d '{"prompt":"bow","engine":"claude","model":"claude-sonnet-5-5"}'
 ```
 
-環境変数: `PORT` (既定 8787) / `HOST` (既定 127.0.0.1) / `OPENAI_API_KEY` /
+Environment variables: `PORT` (default 8787) / `HOST` (default 127.0.0.1) / `OPENAI_API_KEY` /
 `OPENAI_BASE_URL` / `OPENAI_MODEL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` /
-`ARDY_URL` (既定 `http://127.0.0.1:2337`) /
+`ARDY_URL` (default `http://127.0.0.1:2337`) /
 `TEXT_TO_MOTION_API_TOKEN` / `TEXT_TO_MOTION_CORS_ORIGIN` /
 `JEV_API_KEY` / `JEV_ENABLED` / `JEV_MODEL` / `JEV_TIMEOUT_MS` /
-`JEV_CONFIDENCE_THRESHOLD` (詳細は後述の「Jev (TypeSafe AI) による意味・感情解析」を参照)。
+`JEV_CONFIDENCE_THRESHOLD` (For details, refer to "Meaning and Emotion Analysis via Jev (TypeSafe AI)" below).
 
-悪意あるWebページから勝手に叩かれないよう、以下を多層で防いでいます。
+To prevent malicious web pages from unauthorized triggering, multiple layers of defense are implemented:
 
-| 対策 | 内容 |
+| Countermeasure | Content |
 | --- | --- |
-| バインド先 | 127.0.0.1 のみ。外部公開は `TEXT_TO_MOTION_API_TOKEN` 必須 |
-| Host検証 | ループバック名以外を403 (DNSリバインディング対策) |
-| Origin検証 | 付いていれば検証。外部オリジンを403 |
-| Sec-Fetch-Site | `cross-site` を403 |
-| Content-Type | POSTは `application/json` のみ (それ以外は415) |
-| メソッド | GET / POST / OPTIONS 以外は405 |
-| CORS | 既定でヘッダーを返さない (ワイルドカードは使わない) |
-| サイズ上限 | リクエスト本文 1 MiB |
-| トークン | デスクトップ版では必須。CLIでも `TEXT_TO_MOTION_API_TOKEN` で有効化 |
+| Bind address | 127.0.0.1 only. External exposure requires `TEXT_TO_MOTION_API_TOKEN` |
+| Host verification | Returns 403 for non-loopback names (DNS rebinding countermeasure) |
+| Origin verification | Validates if present. Returns 403 for external origins |
+| Sec-Fetch-Site | Returns 403 for `cross-site` |
+| Content-Type | POST requires `application/json` only (returns 415 otherwise) |
+| Methods | Returns 405 for anything other than GET / POST / OPTIONS |
+| CORS | Does not return headers by default (wildcards are not used) |
+| Size limit | Request body 1 MiB |
+| Token | Mandatory in desktop version. Enabled via `TEXT_TO_MOTION_API_TOKEN` in CLI as well |
 
-APIキーの値がレスポンスに含まれないことはテストで固定しています。
-ただし**APIに到達できる相手はキーを見なくても「使える」**点には注意してください
-(生成が走り、利用料が消費されます)。デスクトップ版でトークンを必須にしているのは
-このためです。
+It is locked in by tests that API key values are never included in responses.
+However, please note that **anyone who can reach the API can "use" it without seeing the key**
+(generation will run, consuming usage quotas). This is why tokens are mandatory in the desktop version.
 
-> **ブラウザ上の Web ページから呼ぶ場合のみ** `TEXT_TO_MOTION_CORS_ORIGIN` の設定が必要です
-> (既定ではCORSヘッダーを返さないため、ブラウザ側がブロックします)。
-> curl・Python・Unity・Node などブラウザ外のクライアントには制限はありません。
+> `TEXT_TO_MOTION_CORS_ORIGIN` configuration is required **only when calling from a web page on a browser**
+> (since CORS headers are not returned by default, the browser side will block it).
+> There are no restrictions for out-of-browser clients such as curl, Python, Unity, or Node.
 
-## 注意事項
+## Notes / Disclaimers
 
-- **動作確認環境: Windows 11** (macOS / Linux にはセットアップスクリプトを用意して
-  いますが、開発者による動作確認は Windows のみです。ブラウザで動く Web アプリのため
-  動作する見込みはありますが、保証はありません。不具合報告・修正PRを歓迎します)
-- APIキーモードのモーション生成には OpenAI API の利用料が発生します (1回あたり数円〜十数円程度。
-  使用モデルとモーションの長さによって変動)
-- OpenAI の [データ共有プログラム (Complimentary daily tokens)](https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai)
-  を有効にすると、1日あたりの無料トークン枠内で**無料で試せます**
-  (API の入出力が OpenAI のモデル学習に共有される点に注意。対象アカウント・地域の条件あり。
-  本プログラムは OpenAI 側の都合で変更・終了される可能性があります)
-- Codexモードはログイン中のChatGPT/Codexプランの利用上限と組織ポリシーに従います。
-  Codexサブスクリプションの本ツールでの利用が OpenAI の利用規約・ポリシー上
-  許容されるかは利用者自身でご確認ください (利用は自己責任です)
-- アプリ内のCodexログアウトは、このPC上のCodex CLI全体のログイン状態へ影響します
-- **ARDYローカルエンジンを使う場合でも、OpenAI APIキー (または互換API) を設定しておくと、
-  複雑な動作の解釈・分割・検証を AI が担い、より意図どおりのモーションになりやすくなります**
-  (APIキーが無くてもローカル翻訳で動作します)
-- ARDYローカルエンジンは実験的機能です。モデルの性質上、同じテキストでも生成のたびに
-  違うモーションになります (気に入らなければ再生成してください)。
-  モデル重み (NVIDIA ARDY / Meta Llama 3 / FuguMT) は本リポジトリに含まれず、
-  セットアップ時に各配布元 (Hugging Face) から利用者自身がダウンロードします。
-  各モデルのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください
-- 生成される `.vrma` の利用は各自の責任で行ってください
+- **Verified Environment: Windows 11** (Setup scripts are provided for macOS / Linux, but development verification by the author is Windows-only. Being a web app running in a browser, it is expected to work, but there is no guarantee. Bug reports and pull requests for fixes are welcome)
+- Motion generation in API key mode incurs OpenAI API usage fees (roughly a few yen to over a dozen yen per generation, varying depending on the model used and motion length).
+- By enabling OpenAI's [Complimentary daily tokens data sharing program](https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai), you can **try it for free** within your daily free token quota
+  (Note that API inputs and outputs are shared for OpenAI model training. Subject to eligible account and regional conditions. This program may be modified or terminated at OpenAI's discretion).
+- Codex mode complies with usage limits and organizational policies of your logged-in ChatGPT/Codex plan.
+  Users must verify whether using Codex subscriptions with this tool complies with OpenAI's terms of service and policies (use at your own risk).
+- Logging out of Codex within the app affects the login state of the entire Codex CLI on this PC.
+- **Even when using the ARDY local engine, setting an OpenAI API key (or compatible API) allows AI to handle complex action interpretation, splitting, and verification, making it easier to achieve motions closer to your intent**
+  (It works via local translation even without an API key).
+- The ARDY local engine is an experimental feature. Due to the nature of the model, different motions are generated on every run even with the same text (please regenerate if you aren't satisfied).
+  Model weights (NVIDIA ARDY / Meta Llama 3 / FuguMT) are not included in this repository and must be downloaded by the user from their respective distributors (Hugging Face) during setup.
+  Refer to [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for each model's license.
+- Use generated `.vrma` files at your own risk.
 
-## 免責事項
+## Disclaimer
 
-本ソフトウェアは現状のまま・無保証で提供されます。
-本ソフトウェアの利用または利用不能により生じたいかなる損害
-(API 利用料、データの損失、生成物に起因するトラブル等を含む) についても、
-開発者は一切の責任を負いません。
-生成された `.vrma` の利用、および各種AI・APIの利用は、各自の責任で行ってください。
+This software is provided "as is", without warranty of any kind.
+The developer assumes no responsibility for any damages arising from the use or inability to use this software
+(including API fees, data loss, troubles caused by generated products, etc.).
+The use of generated `.vrma` files and various AIs/APIs is at your own risk.
 
-## 💖 支援のお願い / Support This Project
+## 💖 Support This Project
 
-**Text-To-VRMA は、個人開発の無料オープンソースです。**
+**Text-To-VRMA is a free, open-source project built by an independent developer.**
 
-「テキストを打つだけで、誰でも自分のキャラクターを動かせる」——
-その世界を目指して、NVIDIAの最新モーションAI (ARDY) の統合のような挑戦も含め、
-これからも便利で使いやすいオープンソースを公開していく予定です。
+"Bring your character to life just by typing text" —
+With that vision, including challenges like integrating NVIDIA's latest motion AI (ARDY), I plan to continue releasing convenient and easy-to-use open-source tools.
 
-正直に書くと、いまは職を離れ、生活的に厳しい状況の中で開発を続けています。
-それでも作りたいものがたくさんあります。もし本ツールが役に立ったなら、
-応援・ご支援をいただけるととても励みになります 🙇
+To be honest, I am currently between jobs and continuing development under financially difficult circumstances.
+Yet, there is still so much I want to create. If this tool has been helpful to you, your support and encouragement would mean the world to me 🙇
 
 ---
 
@@ -665,58 +648,57 @@ your support genuinely keeps this work (and its developer) going 💚
 
 ### **[❤️ GitHub Sponsors — github.com/sponsors/Kirakun0328](https://github.com/sponsors/Kirakun0328)**
 
-スターを付けてもらえるだけでも大きな励みになります! / Even a ⭐ on this repo means a lot!
+Even a ⭐ on this repo means a lot!
 
-## 🙏 コントリビューター / Contributors
+## 🙏 Contributors
 
-- [@emadurandal](https://github.com/emadurandal) — macOS対応 (ARDYエンジンのmacOSインストーラーと起動安定化、[#2](https://github.com/Kirakun0328/text-to-vrma/pull/2))、および長さ指定の不具合報告 ([#5](https://github.com/Kirakun0328/text-to-vrma/issues/5))。
-  素晴らしいコントリビュートをありがとうございます!
-- [@taiyop](https://github.com/taiyop) — Electronデスクトップ版のビルド・起動手順をREADMEに追記 ([#3](https://github.com/Kirakun0328/text-to-vrma/pull/3))。
-  ありがとうございます!
-- [@zzmzaizai](https://github.com/zzmzaizai) — OpenAI互換プロバイダ対応のご提案 ([#4](https://github.com/Kirakun0328/text-to-vrma/issues/4))。
-  ありがとうございます!
-- [@mouseos](https://github.com/mouseos) — Linux対応 (ARDYエンジンのLinuxインストーラーと起動分岐、実機で動作確認、[#7](https://github.com/Kirakun0328/text-to-vrma/pull/7))。
-  素晴らしいコントリビュートをありがとうございます!
-- [@Misuta890](https://github.com/Misuta890) — Electron版のエンジン切替の不具合修正 ([#8](https://github.com/Kirakun0328/text-to-vrma/pull/8))。
-  ありがとうございます!
-- [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) — Claude API (Anthropic) 対応 (ブラウザ版・デスクトップ版で動作確認、[#9](https://github.com/Kirakun0328/text-to-vrma/pull/9) / [#11](https://github.com/Kirakun0328/text-to-vrma/issues/11))。
-  素晴らしいコントリビュートをありがとうございます!
-- [@hsm-hx](https://github.com/hsm-hx) — Claude 5.5 世代と Fable 5.1 への対応、拒否時のサーバー側フォールバック ([#17](https://github.com/Kirakun0328/text-to-vrma/pull/17))。
-  ありがとうございます!
-- [@meryuhi](https://github.com/meryuhi) — ARDYエンジンのリターゲットで足が浮く問題の修正 (Unityで足首の高さを計測して確認、[#18](https://github.com/Kirakun0328/text-to-vrma/pull/18))。
-  ありがとうございます!
+- [@emadurandal](https://github.com/emadurandal) — macOS support (macOS installer and startup stabilization for ARDY engine, [#2](https://github.com/Kirakun0328/text-to-vrma/pull/2)), and length specification bug report ([#5](https://github.com/Kirakun0328/text-to-vrma/issues/5)).
+  Thank you for your fantastic contribution!
+- [@taiyop](https://github.com/taiyop) — Added Electron desktop app build and startup instructions to README ([#3](https://github.com/Kirakun0328/text-to-vrma/pull/3)).
+  Thank you!
+- [@zzmzaizai](https://github.com/zzmzaizai) — Proposal for OpenAI-compatible provider support ([#4](https://github.com/Kirakun0328/text-to-vrma/issues/4)).
+  Thank you!
+- [@mouseos](https://github.com/mouseos) — Linux support (Linux installer and startup branching for ARDY engine, verified on real hardware, [#7](https://github.com/Kirakun0328/text-to-vrma/pull/7)).
+  Thank you for your fantastic contribution!
+- [@Misuta890](https://github.com/Misuta890) — Fixed engine switching bug in Electron version ([#8](https://github.com/Kirakun0328/text-to-vrma/pull/8)).
+  Thank you!
+- [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) — Claude API (Anthropic) support (verified on browser and desktop versions, [#9](https://github.com/Kirakun0328/text-to-vrma/pull/9) / [#11](https://github.com/Kirakun0328/text-to-vrma/issues/11)).
+  Thank you for your fantastic contribution!
+- [@hsm-hx](https://github.com/hsm-hx) — Support for Claude 5.5 generation and Fable 5.1, server-side fallback on refusal ([#17](https://github.com/Kirakun0328/text-to-vrma/pull/17)).
+  Thank you!
+- [@meryuhi](https://github.com/meryuhi) — Fixed foot floating issue in ARDY engine retargeting (measured and verified ankle height in Unity, [#18](https://github.com/Kirakun0328/text-to-vrma/pull/18)).
+  Thank you!
 
-バグ報告・機能提案・PRを歓迎しています。macOS / Linux 環境の改善はコミュニティの力が頼りです。
+Bug reports, feature suggestions, and PRs are always welcome. Improving macOS / Linux environments relies heavily on community strength.
 
-## 開発者
+## Developer
 
 - X (Twitter): [@Kiratchi0328](https://x.com/Kiratchi0328)
 
-## ライセンス
+## License
 
-- ソースコード: MIT License (Copyright (c) 2026 Kiratchi)。
-  **MIT License はソースコードにのみ適用され、サードパーティ素材 (同梱 VRM モデル等) は対象外です**
-  (詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md))
-- **クレジット表記のお願い**: 本ツールをアプリやサービスに組み込む場合、
-  義務ではありませんが、画面やクレジット欄に以下のような表記をしていただけると嬉しいです。
+- Source code: MIT License (Copyright (c) 2026 Kiratchi).
+  **The MIT License applies only to the source code and excludes third-party materials (bundled VRM models, etc.)**
+  (See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details).
+- **Request regarding credit attribution**: When incorporating this tool into apps or services,
+  while not mandatory, we would appreciate it if you could include attribution in your screen or credits section like the following:
 
   ```text
   Motion generation powered by Text-To-VRMA (© Kiratchi)
   https://github.com/Kirakun0328/text-to-vrma
   ```
 
-  なお MIT ライセンスの条件として、コードのコピー・再配布時には上記の著作権表示と
-  ライセンス文の同梱が必要です。
+  As a condition of the MIT License, copying and redistributing code requires including the above copyright notice and license text.
 
-- ARDYローカルエンジンが利用する外部モデルのライセンス:
-  - NVIDIA ARDY — コード: Apache-2.0 / 重み: NVIDIA Open Model Agreement (商用利用可)
-  - Meta Llama 3 — Meta Llama 3 Community License。本機能は **Built with Meta Llama 3**
-  - FuguMT (日英翻訳) — CC BY-SA 4.0
-  - 詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照
-- 同梱の AvatarSample モデル (© pixiv Inc.) は **MIT ライセンスの対象外**です。
-  ピクシブ株式会社の [AvatarSample A〜Z 利用条件](https://vroid.pixiv.help/hc/ja/articles/4402394424089-AvatarSample-A-Z)
-  が適用されます (無償利用・再配布可 / **有償での再配布と CC0 としての配布は禁止**)。
-  モデルに関する著作権その他の権利は各権利者に帰属します
-- その他の VRM モデルは各モデルの利用規約に従ってください
-- **生成された `.vrma` は MIT ライセンスの対象外**で、生成した利用者のものです。
-  本プロジェクトが生成物に権利を主張することはなく、商用含め自由に利用できます
+- Licenses for external models used by the ARDY local engine:
+  - NVIDIA ARDY — Code: Apache-2.0 / Weights: NVIDIA Open Model Agreement (Commercial use permitted)
+  - Meta Llama 3 — Meta Llama 3 Community License. This feature is **Built with Meta Llama 3**
+  - FuguMT (Japanese-English Translation) — CC BY-SA 4.0
+  - See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details.
+- The bundled AvatarSample model (© pixiv Inc.) is **excluded from the MIT License**.
+  Pixiv Inc.'s [AvatarSample A-Z Terms of Use](https://vroid.pixiv.help/hc/ja/articles/4402394424089-AvatarSample-A-Z)
+  applies (free use and redistribution permitted / **commercial redistribution and distribution as CC0 are prohibited**).
+  Copyright and other rights regarding the model belong to their respective owners.
+- Please follow the terms of use for any other VRM models.
+- **Generated `.vrma` files are excluded from the MIT License** and belong to the user who generated them.
+  This project makes no ownership claims over generated outputs, and they can be used freely, including for commercial purposes.
