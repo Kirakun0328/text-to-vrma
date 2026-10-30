@@ -417,41 +417,42 @@ From the spec onward, both modes are common:
 ```
 
 
-| ファイル | 役割 |
+
+| File | Role / Description |
 | --- | --- |
-| `src/llm.js` | OpenAI API へのプロンプト (ボーン規約・お手本モーション5種) / 2パス自己修正 / spec 検証・角度クランプ |
-| `src/vrmaBuilder.js` | モーション spec から VRMA (GLB) をバイナリ生成。VRM1 規約の T ポーズ骨格を埋め込み、`VRMC_vrm_animation` 拡張でヒューマノイドボーンをマッピング |
-| `src/viewer.js` | three.js シーン / VRM ロード / VRMA 再生 |
-| `src/idleMotion.js` | 待機モーション (呼吸) |
-| `src/main.js` | UI 結線 |
-| `src/autoExpressions.js` | ARDYモード用: 感情語からの表情自動付与 + まばたき (混合感情・時間順の感情に対応) |
-| `src/emotionActing.js` | 感情を身体動作へ反映する共通指針 (計画・生成・レビューで共有) |
-| `src/smoothMotion.js` | 全身のなめらか補正。足首高から接地を推定し、接地付近は補正を抑える |
-| `src/motionCompliance.js` | 指示追従チェック。移動・ジャンプ・しゃがみ・手上げをアバター上で計測 |
-| `src/ardyCandidates.js` / `src/candidatePanel.js` | 3候補の生成と比較・選択 |
-| `src/motionReview.js` / `src/ardyReview.js` | 生成後のAIレビュー (修正が必要かの判定を含む) |
-| `src/directMotionReview.js` / `src/motionPatch.js` | 関節を直接補正する経路と、その適用・検証 |
-| `src/segmentedReview.js` | 長い動作を15秒程度の区間へ分けて修正 |
-| `src/motionAssessment.js` | 足滑り・沈み込み等の物理指標の算出 |
-| `src/reviewCapture.js` | 生成モーションの正面・側面を自動撮影 (画像レビュー用) |
-| `src/motionCheckPanel.js` / `src/reviewI18n.js` | 再生状態・生成経路・チェック結果の表示と多言語化 |
-| `src/loopPlayback.js` | ループ再生時に頭と末尾をつなぐ処理 |
-| `src/codexWebBridge.js` / `src/codexUsage.js` | ローカルWeb版のCodex接続と利用枠表示 |
-| `tools/codex-web.mjs` | Vite開発サーバーから `codex app-server` へ中継するプラグイン |
-| `electron/codex-client.cjs` | Codex app-server接続 / ChatGPT認証 / モデル取得 / 一時スレッドでの生成 |
-| `electron/ardy-client.cjs` | ARDYエンジンサーバーの起動・監視 (デスクトップ版) |
-| `electron/preload.cjs` | 認証情報を公開しない限定IPCブリッジ |
-| `src/apiServer.js` | ローカルHTTP API本体 (OpenAI / ARDY 両エンジンに対応) |
-| `tools/api-server.mjs` | APIサーバーの起動エントリ (`npm run api`) |
-| `tools/ardy-engine/server.py` | ARDY常駐サーバー: 生成・日本語翻訳・経由地制約・進捗API |
-| `tools/ardy-engine/retarget.py` | ARDY Coreスケルトン → VRM Humanoid リターゲット |
-| `tools/ardy-engine/install.ps1` | エンジンのワンコマンドセットアップ (Windows) |
-| `tools/ardy-engine/install_mac.sh` | macOS用エンジンのワンコマンドセットアップ |
-| `tools/ardy-engine/install_linux.sh` | Linux用エンジンのワンコマンドセットアップ |
+| `src/llm.js` | Prompts to OpenAI API (bone conventions / 5 sample motions) / 2-pass self-correction / spec validation & angle clamping |
+| `src/vrmaBuilder.js` | Generates VRMA (GLB) binaries from motion specs. Embeds T-pose skeletons for VRM 1 conventions and maps humanoid bones using the `VRMC_vrm_animation` extension |
+| `src/viewer.js` | three.js scene / VRM loading / VRMA playback |
+| `src/idleMotion.js` | Idle motion (breathing) |
+| `src/main.js` | UI wiring |
+| `src/autoExpressions.js` | For ARDY mode: Automatic facial expression assignment from emotional words + blinking (supports mixed emotions and time-ordered emotions) |
+| `src/emotionActing.js` | Common guidelines for reflecting emotions into physical movements (shared across planning, generation, and review) |
+| `src/smoothMotion.js` | Full-body smoothness correction. Estimates ground contact from ankle height and suppresses correction near ground contact |
+| `src/motionCompliance.js` | Instruction-following check. Measures movement, jumping, crouching, and hand-raising on the avatar |
+| `src/ardyCandidates.js` / `src/candidatePanel.js` | Generation, comparison, and selection of 3 candidates |
+| `src/motionReview.js` / `src/ardyReview.js` | Post-generation AI review (including judgment on whether correction is necessary) |
+| `src/directMotionReview.js` / `src/motionPatch.js` | Pathway for direct joint correction, along with its application and verification |
+| `src/segmentedReview.js` | Splits long actions into ~15-second segments for correction |
+| `src/motionAssessment.js` | Calculation of physical metrics such as foot sliding and sinking |
+| `src/reviewCapture.js` | Automatically captures front and side views of the generated motion (for image review) |
+| `src/motionCheckPanel.js` / `src/reviewI18n.js` | Display and internationalization of playback state, generation path, and check results |
+| `src/loopPlayback.js` | Handles connecting the start and end during loop playback |
+| `src/codexWebBridge.js` / `src/codexUsage.js` | Codex connection and quota display for the local web version |
+| `tools/codex-web.mjs` | Vite dev server plugin that relays requests to `codex app-server` |
+| `electron/codex-client.cjs` | Codex app-server connection / ChatGPT authentication / model retrieval / generation in temporary threads |
+| `electron/ardy-client.cjs` | Starts and monitors the ARDY engine server (desktop version) |
+| `electron/preload.cjs` | Limited IPC bridge that does not expose authentication credentials |
+| `src/apiServer.js` | Core local HTTP API (supports both OpenAI and ARDY engines) |
+| `tools/api-server.mjs` | API server startup entry (`npm run api`) |
+| `tools/ardy-engine/server.py` | ARDY resident server: generation, Japanese translation, waypoint constraints, progress API |
+| `tools/ardy-engine/retarget.py` | ARDY Core skeleton → VRM Humanoid retargeting |
+| `tools/ardy-engine/install.ps1` | One-command engine setup (Windows) |
+| `tools/ardy-engine/install_mac.sh` | One-command engine setup for macOS |
+| `tools/ardy-engine/install_linux.sh` | One-command engine setup for Linux |
 
-## モーション spec フォーマット
 
-LLM が生成する中間表現です:
+## Motion Spec Format
+This is the intermediate representation generated by the LLM:
 
 ```json
 {
@@ -468,22 +469,23 @@ LLM が生成する中間表現です:
 }
 ```
 
-- `r` = T ポーズからのオイラー角 [X, Y, Z] (度) / `p` = 腰位置オフセット (m)
-- `expressions` は VRM プリセット表情 (happy / blink 等) のウェイト (0〜1)。
-  プレビューでは常に再生され、`.vrma` 保存時は含めるかどうかを選択できます
-  (再生側アプリが VRMA の表情トラックに対応している必要があります)
-- 座標規約: モデルは +Z 正面 / +X が左手側 (VRM 1.0 準拠)
+- `r` = Euler angles [X, Y, Z] (degrees) from the T-pose / `p` = Hips position offset (meters)
+- `expressions` = Weights (0 to 1) for VRM preset facial expressions (happy, blink, etc.).
+  They always play back in the preview, and you can choose whether to include them when saving `.vrma` files 
+  (requires the playback app to support VRMA expression tracks).
+- Coordinate convention: Model faces +Z / +X is on the left-hand side (compliant with VRM 1.0).
 
-## ローカルHTTP API (開発者向け・試験的機能)
+## Local HTTP API (Experimental Feature for Developers)
 
-> **v1.1.7 で追加した試験的機能です。** 特に ARDY エンジン経由の生成は
-> 検証が浅く、インターフェースも今後変わる可能性があります。
-> **実際に使ってみた感想・不具合報告を歓迎します** —
-> [Issues](https://github.com/Kirakun0328/text-to-vrma/issues) までどうぞ。
+> **This is an experimental feature added in v1.1.7.** Especially for generation via the ARDY engine, 
+> verification is limited, and the interface may change in the future.
+> **Feedback and bug reports from actual usage are very welcome** —
+> please feel free to post them on [Issues](https://github.com/Kirakun0328/text-to-vrma/issues).
 
-他のアプリやスクリプトから Text-To-VRMA を呼び出すためのローカルAPIサーバーです。
-Unity / Blender / 自作ツール / シェルスクリプトなどから、テキストを投げて
-モーション spec や `.vrma` を受け取れます。
+This is a local API server designed to invoke Text-To-VRMA from other applications or scripts.
+You can send text from Unity, Blender, custom tools, or shell scripts, and receive motion specs or `.vrma` files.
+
+
 
 ```bash
 cp .env.example .env   # 初回のみ。OPENAI_API_KEY を書いておく (ARDYだけなら不要)
