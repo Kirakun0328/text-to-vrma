@@ -4,7 +4,7 @@
 
 ![Demo: Motion Generation from Text](video/demo.gif)
 
-A web application where you enter text, and AI generates motion, creating a **VRMA (VRM Animation / `.vrma`)** file directly within your browser to animate your VRM character on the spot. The generated `.vrma` files can be saved and used directly in any VRMA-compatible application.
+A web application where you enter text, and the AI generates a motion, creating a **VRMA (VRM Animation / `.vrma`)** file directly within your browser to animate your VRM character on the spot. The generated `.vrma` files can be saved and used directly in any VRMA-compatible application.
 
 Examples: "walk in place", "jump with joy", "wave hand", "look down sadly"
 
@@ -633,12 +633,12 @@ I'll be honest: I'm currently between jobs and building this through financially
 difficult times. But there is so much more I want to create - more open-source
 tools for the VRM / VTuber / creative community.
 
-If this tool helps any of you, or if you simply want to see more projects like it,
+If this tool helps any of you, in any way, or if you simply want to see more projects like it,
 your support genuinely keeps this work (and its developer) above the surface 💚
 
 ### **[❤️ GitHub Sponsors - github.com/sponsors/Kirakun0328](https://github.com/sponsors/Kirakun0328)**
 
-Even a ⭐ on this repository means a lot!
+Even a ⭐ on this repository means a lot! Thank You!
 
 ## 🙏 Contributors
 
@@ -658,7 +658,7 @@ Even a ⭐ on this repository means a lot!
   Thank you!
 - [@meryuhi](https://github.com/meryuhi) - Fixed foot floating issue in ARDY engine retargeting (measured and verified ankle height in Unity, [#18](https://github.com/Kirakun0328/text-to-vrma/pull/18)).
   Thank you!
-- [@loneicewolf](https://github.com/loneicewolf) — Translated & Proofread the README into English (README_EN). Thank you!
+- [@loneicewolf](https://github.com/loneicewolf) - Translated & Proofread the README into English (README_EN). Thank you!
 
 Bug reports, feature suggestions, and PRs are always welcome. Improving macOS / Linux environments relies heavily on community strength.
 
