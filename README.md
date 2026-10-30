@@ -1,8 +1,9 @@
 # Text-To-VRMA — VRM特化型Text-To-Motionツール
-
 [![GitHub Sponsors](https://img.shields.io/badge/♥_Sponsor-支援する-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/Kirakun0328)
 
 ![デモ: テキストからモーション生成](video/demo.gif)
+
+[English version here](README_EN.md)
 
 テキストを入力すると AI がモーションを生成し、
 **VRMA (VRM Animation / `.vrma`)** ファイルをブラウザ内で生成して、
@@ -668,12 +669,12 @@ I'll be honest: I'm currently between jobs and building this through financially
 difficult times. But there is so much more I want to create — more open-source
 tools for the VRM / VTuber / creative community.
 
-If this tool helps you, or you simply want to see more projects like it,
-your support genuinely keeps this work (and its developer) going 💚
+If this tool helps any of you, in any way, or if you simply want to see more projects like it,
+your support genuinely keeps this work (and its developer) above the surface 💚
 
 ### **[❤️ GitHub Sponsors — github.com/sponsors/Kirakun0328](https://github.com/sponsors/Kirakun0328)**
 
-スターを付けてもらえるだけでも大きな励みになります! / Even a ⭐ on this repo means a lot!
+スターを付けてもらえるだけでも大きな励みになります! / Even a ⭐ on this repository means a lot! Thank You!
 
 ## 🙏 コントリビューター / Contributors
 
@@ -692,6 +693,8 @@ your support genuinely keeps this work (and its developer) going 💚
 - [@hsm-hx](https://github.com/hsm-hx) — Claude 5.5 世代と Fable 5.1 への対応、拒否時のサーバー側フォールバック ([#17](https://github.com/Kirakun0328/text-to-vrma/pull/17))。
   ありがとうございます!
 - [@meryuhi](https://github.com/meryuhi) — ARDYエンジンのリターゲットで足が浮く問題の修正 (Unityで足首の高さを計測して確認、[#18](https://github.com/Kirakun0328/text-to-vrma/pull/18))。
+  ありがとうございます!
+- [@loneicewolf](https://github.com/loneicewolf) — README の英語翻訳・校正 (`README_EN.md` の作成)。
   ありがとうございます!
 
 バグ報告・機能提案・PRを歓迎しています。macOS / Linux 環境の改善はコミュニティの力が頼りです。
