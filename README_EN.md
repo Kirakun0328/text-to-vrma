@@ -393,28 +393,29 @@ For routing and constraints, please refer to [Integration of Jev into the Genera
 
 
 ```text
-[LLMキーフレームモード]
-テキスト ── OpenAI API / Codex CLI ──▶ モーション spec (ボーン別オイラー角キーフレーム JSON)
+[LLM Keyframe Mode]
+Text ── OpenAI API / Codex CLI ──▶ Motion Spec (Bone-specific Euler angle keyframe JSON)
 
-[ARDYモード]
-テキスト ── 選択したAI (演技計画・動作分割) ──▶ ARDYエンジンサーバー (localhost:2337)
-              │  Codex / OpenAI / Claude        │ 拡散モデルで20fpsモーション生成
-              └ AIなしならARDY内蔵翻訳          │ → 足滑り補正 → VRMリターゲット
-                                                ▼
-                                    モーション spec ──▶ なめらか補正 ──▶ AIレビュー (任意)
+[ARDY Mode]
+Text ── Selected AI (Acting Planning & Action Splitting) ──▶ ARDY Engine Server (localhost:2337)
+            │  Codex / OpenAI / Claude         │ Generates 20fps motion via diffusion model
+            └ No AI -> ARDY Built-in Translation │ → Foot Slide Correction → VRM Retargeting
+                                               ▼
+                                     Motion Spec ──▶ Smoothness Correction ──▶ AI Review (Optional)
 ```
 
-spec 以降は両モード共通:
+From the spec onward, both modes are common:
 
 ```text
-                          モーション spec
-                                   │
-                                   ▼
-              vrmaBuilder.js ── glTF + VRMC_vrm_animation 拡張 → GLB (.vrma)
-                                   │
-                                   ▼
-              viewer.js ── three.js + @pixiv/three-vrm-animation で VRM に再生
+                         Motion Spec
+                              │
+                              ▼
+              vrmaBuilder.js ── glTF + VRMC_vrm_animation Extension → GLB (.vrma)
+                              │
+                              ▼
+              viewer.js ── Plays back on VRM using three.js + @pixiv/three-vrm-animation
 ```
+
 
 | ファイル | 役割 |
 | --- | --- |
