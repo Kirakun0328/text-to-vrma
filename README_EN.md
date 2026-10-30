@@ -1,4 +1,4 @@
-# Text-To-VRMA — VRM-Specialized Text-To-Motion Tool
+# Text-To-VRMA - VRM-Specialized Text-To-Motion Tool
 
 [![GitHub Sponsors](https://img.shields.io/badge/♥_Sponsor-Support-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/Kirakun0328)
 
@@ -9,26 +9,25 @@ A web application where you enter text, and AI generates motion, creating a **VR
 Examples: "walk in place", "jump with joy", "wave hand", "look down sadly"
 
 ## ✨ Key Features
-- 📝 **Text-to-Motion Generation** (Japanese supported) — Powered by two engines: LLM Keyframe / NVIDIA ARDY
-- 🧠 **Jev (TypeSafe AI) Support** — Analyzes emotion, gaze, and movement tempo from input text, automatically supplementing facial expressions and movement styles (v1.1.9+)
-- 🚀 **Latest Model Support** — OpenAI GPT-6 generation (`gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna`), and Claude Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5
-- 💳 **Codex Subscription Support** — In addition to the desktop version, you can utilize your quota directly from the local web version
-- 🎬 Export generated motion as **GIF / Video (1080p)** — Share directly on social media
-- 🎨 **Custom Background Colors** — Set solid background colors for chroma key compositing (e.g., green screen)
+- 📝 **Text-to-Motion Generation** (Japanese supported) - Powered by two engines: LLM Keyframe / NVIDIA ARDY
+- 🧠 **Jev (TypeSafe AI) Support** - Analyzes emotion, gaze, and movement tempo from input text, automatically supplementing facial expressions and movement styles (v1.1.9+)
+- 🚀 **Latest Model Support** - OpenAI GPT-6 generation (`gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna`), and Claude Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5
+- 💳 **Codex Subscription Support** - In addition to the desktop version, you can utilize your quota directly from the local web version
+- 🎬 Export generated motion as **GIF / Video (1080p)** - Share directly on social media
+- 🎨 **Custom Background Colors** - Set solid background colors for chroma key compositing (e.g., green screen)
 - ⏱ **Specify Motion Length in Seconds** (leave blank for auto-detection, with an "auto-correction" option)
-- ▶ **Playback Seekbar** — Displays current seconds, scrub to any point, and pause
-- 📍 **Waypoint Mode** — Click on the 3D view floor to specify movement paths (ARDY)
-- 🎭 **Physical Expression of Emotion** — Reflects not just facial expressions, but also posture, arms, center of gravity, and movement dynamics
-- 🔍 **AI Motion Review** — AI evaluates necessity after generation and applies corrections only when needed
-- 🎯 **Instruction-Following Check** — Measures movement, jumping, crouching, and hand-raising on the avatar
-- 🎲 **Generate and Compare 3 Candidates** — Generate with different seeds to compare and choose the best one
-- ✨ **Full-Body Smoothness Correction** — Softens abrupt angle changes while preserving grounding areas
-- 🔁 **Loop Playback** — Connects the beginning and end for seamless playback
+- ▶ **Playback Seekbar** - Displays current seconds, scrub to any point, and pause
+- 📍 **Waypoint Mode** - Click on the 3D view floor to specify movement paths (ARDY)
+- 🎭 **Physical Expression of Emotion** - Reflects not just facial expressions, but also posture, arms, center of gravity, and movement dynamics
+- 🔍 **AI Motion Review** - AI evaluates necessity after generation and applies corrections only when needed
+- 🎯 **Instruction-Following Check** - Measures movement, jumping, crouching, and hand-raising on the avatar
+- 🎲 **Generate and Compare 3 Candidates** - Generate with different seeds to compare and choose the best one
+- ✨ **Full-Body Smoothness Correction** - Softens abrupt angle changes while preserving grounding areas
+- 🔁 **Loop Playback** - Connects the beginning and end for seamless playback
 - 😊 **Automatic Facial Expression Generation** + 4-Language UI (Japanese / English / Chinese / Korean)
-- 🔌 **OpenAI-Compatible Provider Support** — OpenRouter, DeepSeek, Ollama, and more can also be used
-- 🟣 **Claude API Support** — Generate motions using Anthropic's Claude (claude-opus-5-5, etc.)
-- 🧭 **Connection Guidance** — If connection fails (e.g., when the ARDY engine is not running), it displays the cause along with buttons like "Start Engine"
-
+- 🔌 **OpenAI-Compatible Provider Support** - OpenRouter, DeepSeek, Ollama, and more can also be used
+- 🟣 **Claude API Support** - Generate motions using Anthropic's Claude (claude-opus-5-5, etc.)
+- 🧭 **Connection Guidance** - If connection fails (e.g., when the ARDY engine is not running), it displays the cause along with buttons like "Start Engine"
 
 
 You can choose from two generation engines:
@@ -54,19 +53,15 @@ Simultaneously with the motion, **facial expressions** (smiles, sadness, surpris
 Blink intervals have natural variations and are suppressed during surprised expressions.
 When saving the `.vrma` file, you can choose whether to "Include / Exclude facial expressions (bone motion only)".
 
-The UI is available in **Japanese / English / Chinese / Korean** — switch instantly via the selector in the top-right corner.
+The UI is available in **Japanese / English / Chinese / Korean** - switch instantly via the selector in the top-right corner.
 (Automatically determined from browser language settings on first launch).
-*The UI is available in Japanese, English, Chinese and Korean — switch instantly from the selector at the top.*
-
-
-
-
+*The UI is available in Japanese, English, Chinese and Korean - switch instantly from the selector at the top.*
 
 ## Setup & Startup
 
 > 🎁 **For Windows users who want to use it without building:**
 > [Download the latest zip from Releases](https://github.com/Kirakun0328/text-to-vrma/releases/latest)
-> — Just extract it and double-click the exe (no installation required; a complete ARDY engine setup is also bundled).
+> - Just extract it and double-click the exe (no installation required; a complete ARDY engine setup is also bundled).
 > All of the setups below are unnecessary.
 
 If running from source, there are two ways. If you are unsure, **A. Browser Version** is the fastest.
@@ -85,10 +80,6 @@ If running from source, there are two ways. If you are unsure, **A. Browser Vers
 | ARDY Local Engine (Optional) | See the [ARDY Local Engine section](#ardy-local-engine-optional) below (Python 3.10+ / git, approx. 20GB download). **This can run without an API key.** |
 
 The VRM model includes the VRM 1.0 and VRM 0.0 versions of the [VRoid Official Sample Model (AvatarSample)](https://hub.vroid.com/characters/2843975675147313744/models/5644550979324015604), and the VRM 1.0 version is loaded on startup. You can also swap it out for your own `.vrm` files, as **both 0.x and 1.0 formats are supported** (three-vrm automatically detects them and normalizes the orientation).
-
-
-
-
 
 
 ### A. Browser Version
@@ -110,7 +101,6 @@ npm install
 npm run build
 npm run app:dev
 ```
-
 
 
 - The Electron version loads the Vite build output (`dist/index.html`). For the initial run and after source code changes, **make sure to run `npm run build`** before starting with `npm run app:dev` 
@@ -173,8 +163,8 @@ npm run app:dev
    - You can check the current seconds, scrub to any point, and pause using the **playback bar** at the bottom.
    - Adjust the preview using **Reset Camera / Fullscreen** at the top right and **Switch Background** at the bottom.
 5. Export from "4. Export & Share"
-   - **⬇ Save .vrma** — A file usable in VRMA-compatible apps (VRoid Hub, cluster, etc.)
-   - **🎞 Export GIF / 🎬 Export Video** — Export in 1080p and share directly to social media
+   - **⬇ Save .vrma** - A file usable in VRMA-compatible apps (VRoid Hub, cluster, etc.)
+   - **🎞 Export GIF / 🎬 Export Video** - Export in 1080p and share directly to social media
    - You can also play, save, and export GIF/video from each item in the generation history.
 
 
@@ -198,11 +188,11 @@ For details, please refer to [End-Pose Preservation](docs/end-pose-holding.md).
 
 After generation, the AI **first determines whether correction is necessary**. If not, the original movement is adopted as-is, and the reason is displayed in the preview's "Compare Before/After Correction".
 
-- **Standard & Quality Priority** — Applies corrections directly to the joints of the original motion and re-evaluates them using a separate judgment.
+- **Standard & Quality Priority** - Applies corrections directly to the joints of the original motion and re-evaluates them using a separate judgment.
 
-- **Speed Priority** — Reviews instructions sent to ARDY and regenerates.
+- **Speed Priority** - Reviews instructions sent to ARDY and regenerates.
 
-- **Use Images Too** — The app automatically captures front and side photos of the generated motion and sends them to the selected AI.
+- **Use Images Too** - The app automatically captures front and side photos of the generated motion and sends them to the selected AI.
 
   (Users do not need to prepare reference images themselves.)
 
@@ -218,7 +208,7 @@ ARDY's end-pose is preserved, and forced upright interpolation that causes foot 
 
 ### Instruction-Following Check
 
-Detects four types of movements—locomotion, two-footed jumping, lowering hips, and raising hands near the face—by measuring joint positions on the avatar at up to 20Hz.
+Detects 4 types of movements-locomotion, 2-footed jumping, lowering hips, and raising hands near the face-by measuring joint positions on the avatar at up to 20Hz.
 
 This is a **geometric proxy metric**. It does not guarantee strict step counts, movement directions, action order, facial expressions, naturalness, collisions, or physical stability.
 
@@ -255,9 +245,9 @@ locally to generate motion-capture-quality full-body motion.
 **What it can do:**
 
 - Generates full-body movements like walking, running, dancing, jumping, and combat using AI trained on actual human motion capture data (center-of-gravity shifts, momentum, and foot contact look authentic).
-- **Japanese prompts supported** — Automatically translates into English via local translation (FuguMT). 
+- **Japanese prompts supported** - Automatically translates into English via local translation (FuguMT). 
   If an OpenAI API key is saved, GPT handles both English translation and splitting continuous actions, improving accuracy.
-- **📍 Waypoint Mode** — Click on the 3D view floor to place waypoints, generating motion for the character to pass through in that order (right-click to undo one).
+- **📍 Waypoint Mode** - Click on the 3D view floor to place waypoints, generating motion for the character to pass through in that order (right-click to undo one).
 - **Multi-step actions** like "walk, run, jump, and trip" can also be split and verified by GPT, connecting and generating up to 12 actions (when an API key is saved).
 - Motion length can be specified in seconds (0.1s+) or automatically determined from content. Expressions and loop availability are also automatic.
 - Unlimited generations, completely local (runs offline after setup).
@@ -278,7 +268,7 @@ locally to generate motion-capture-quality full-body motion.
 > Since model usage is around 1.2GB and does not increase during generation, adding desktop display overhead means it is **expected to run sufficiently on a GPU with 4GB of VRAM** (verified on 12GB; 4–6GB is untested, so 6GB+ is recommended).
 > Even without a GPU, it runs on the CPU (though generation will be several times slower).
 
-**3-Layer Architecture Supporting Quality** — Division of roles: "GPT is the brain, ARDY is the body":
+**3-Layer Architecture Supporting Quality** - Division of roles: "GPT is the brain, ARDY is the body":
 
 | Layer | Role |
 | --- | --- |
@@ -286,7 +276,7 @@ locally to generate motion-capture-quality full-body motion.
 | Llama-3-8B (Local / CPU) | Converts English text into ARDY-specific vectors (LLM2Vec) |
 | ARDY (Local / GPU) | Generates movement using AI trained on actual motion capture data |
 
-Everything can be completed via local translation (FuguMT) even without an API key, but having a key improves the reproduction accuracy of complex instructions like "run, then jump, and finally bow".
+Everything here can be completed via local translation (FuguMT) even without an API key, although having a key improves the reproduction accuracy of complex instructions like "run, then jump, and finally bow".
 
 **Setup** (Requires Python 3.10+ and git; downloads approx. 20GB):
 
@@ -382,7 +372,7 @@ curl -X POST [http://127.0.0.1:8787/v1/motion-context](http://127.0.0.1:8787/v1/
 
 ### Regarding Network Communication
 
-When Jev is enabled, the input text (truncated to a maximum of 2,000 characters) is sent to the TypeSafe AI API (`https://api.typesafe.ai`). New generations do not send previous acting states.
+When Jev is enabled, the input text (truncated to a maximum of 2000 characters) is sent to the TypeSafe AI API (`https://api.typesafe.ai`). New generations do not send previous acting states.
 Explicit additive corrections also pass limited states of the current movement, posture, expression, and playback position.
 
 Routing, late arrival, and confirmation of application to the physical body are recorded in `jevContext`, `jev`, and `realtime.jev` within the generation spec.
@@ -479,7 +469,7 @@ This is the intermediate representation generated by the LLM:
 
 > **This is an experimental feature added in v1.1.7.** Especially for generation via the ARDY engine, 
 > verification is limited, and the interface may change in the future.
-> **Feedback and bug reports from actual usage are very welcome** —
+> **Feedback and bug reports from actual usage are very welcome** -
 > please feel free to post them on [Issues](https://github.com/Kirakun0328/text-to-vrma/issues).
 
 This is a local API server designed to invoke Text-To-VRMA from other applications or scripts.
@@ -507,7 +497,7 @@ Text-To-VRMA API listening on http://127.0.0.1:8787
 
 ### Using from the Desktop App (v1.1.7+)
 
-Without using commands, you can enable it from the app's "Advanced Settings → Local HTTP API".
+Without using CLI commands, you can enable it from the app's "Advanced Settings → Local HTTP API".
 It is **disabled by default** and only opens the port on 127.0.0.1 when checked.
 
 - It uses the OpenAI / Claude keys already configured in the app as-is, so duplicate configuration is unnecessary.
@@ -542,12 +532,12 @@ When exposing externally, setting `TEXT_TO_MOTION_API_TOKEN` is mandatory; if un
 | `prompt` | (Required) | Motion instruction. 1 to 4,000 characters |
 | `engine` | `openai` | `openai` / `claude` / `codex` = LLM Keyframe / `ardy` = ARDY Local Engine |
 | `planner` | `codex` | `ardy` only: AI used for action planning (`codex` / `openai` / `claude` / `none`) |
-| `speed` | — | `openai` / `codex`: `fast` / `balanced` / `quality`. `fast` reduces reasoning volume and key count |
+| `speed` | - | `openai` / `codex`: `fast` / `balanced` / `quality`. `fast` reduces reasoning volume and key count |
 | `format` | `json` | `json` returns spec, `vrma` returns `.vrma` binary |
 | `model` | Environment variable | Generative model for `openai`/`claude`, GPT model used for action splitting in `ardy` |
 | `refine` | `true` | Two-pass self-correction enabled for `openai` and `claude` |
-| `duration` | — | `ardy` only: Generated length in seconds |
-| `waypoints` | — | `ardy` only: Movement path `[{ "x": 1, "z": 2 }]` |
+| `duration` | - | `ardy` only: Generated length in seconds |
+| `waypoints` | - | `ardy` only: Movement path `[{ "x": 1, "z": 2 }]` |
 | `use_jev` | Automatic when key is set | Analyzes meaning and emotion with Jev and uses it as auxiliary information. `false` disables it per request. If Jev is unconfigured on the server, generation proceeds as usual |
 
 ```bash
@@ -626,48 +616,49 @@ The use of generated `.vrma` files and various AIs/APIs is at your own risk.
 
 **Text-To-VRMA is a free, open-source project built by an independent developer.**
 
-"Bring your character to life just by typing text" —
+"Bring your character to life just by typing text" -
 With that vision, including challenges like integrating NVIDIA's latest motion AI (ARDY), I plan to continue releasing convenient and easy-to-use open-source tools.
 
-To be honest, I am currently between jobs and continuing development under financially difficult circumstances.
-Yet, there is still so much I want to create. If this tool has been helpful to you, your support and encouragement would mean the world to me 🙇
+To be completely honest I am currently between jobs and continuing development under financially difficult circumstances.
+But, there is still so much I want to create. Hence, If this tool has been helpful to any of you, in any way, your support and encouragement would mean so much to me. 🙇
 
 ---
 
 **Text-To-VRMA is free & open-source, built by an independent developer in Japan.**
 
-The goal: anyone can bring their VRM character to life just by typing —
+The goal: anyone can bring their VRM character to life just by typing -
 powered by state-of-the-art motion AI, running on your own PC, free forever.
 
 I'll be honest: I'm currently between jobs and building this through financially
-difficult times. But there is so much more I want to create — more open-source
+difficult times. But there is so much more I want to create - more open-source
 tools for the VRM / VTuber / creative community.
 
-If this tool helps you, or you simply want to see more projects like it,
-your support genuinely keeps this work (and its developer) going 💚
+If this tool helps any of you, or if you simply want to see more projects like it,
+your support genuinely keeps this work (and its developer) above the surface 💚
 
-### **[❤️ GitHub Sponsors — github.com/sponsors/Kirakun0328](https://github.com/sponsors/Kirakun0328)**
+### **[❤️ GitHub Sponsors - github.com/sponsors/Kirakun0328](https://github.com/sponsors/Kirakun0328)**
 
-Even a ⭐ on this repo means a lot!
+Even a ⭐ on this repository means a lot!
 
 ## 🙏 Contributors
 
-- [@emadurandal](https://github.com/emadurandal) — macOS support (macOS installer and startup stabilization for ARDY engine, [#2](https://github.com/Kirakun0328/text-to-vrma/pull/2)), and length specification bug report ([#5](https://github.com/Kirakun0328/text-to-vrma/issues/5)).
+- [@emadurandal](https://github.com/emadurandal) - macOS support (macOS installer and startup stabilization for ARDY engine, [#2](https://github.com/Kirakun0328/text-to-vrma/pull/2)), and length specification bug report ([#5](https://github.com/Kirakun0328/text-to-vrma/issues/5)).
   Thank you for your fantastic contribution!
-- [@taiyop](https://github.com/taiyop) — Added Electron desktop app build and startup instructions to README ([#3](https://github.com/Kirakun0328/text-to-vrma/pull/3)).
+- [@taiyop](https://github.com/taiyop) - Added Electron desktop app build and startup instructions to README ([#3](https://github.com/Kirakun0328/text-to-vrma/pull/3)).
   Thank you!
-- [@zzmzaizai](https://github.com/zzmzaizai) — Proposal for OpenAI-compatible provider support ([#4](https://github.com/Kirakun0328/text-to-vrma/issues/4)).
+- [@zzmzaizai](https://github.com/zzmzaizai) - Proposal for OpenAI-compatible provider support ([#4](https://github.com/Kirakun0328/text-to-vrma/issues/4)).
   Thank you!
-- [@mouseos](https://github.com/mouseos) — Linux support (Linux installer and startup branching for ARDY engine, verified on real hardware, [#7](https://github.com/Kirakun0328/text-to-vrma/pull/7)).
+- [@mouseos](https://github.com/mouseos) - Linux support (Linux installer and startup branching for ARDY engine, verified on real hardware, [#7](https://github.com/Kirakun0328/text-to-vrma/pull/7)).
   Thank you for your fantastic contribution!
-- [@Misuta890](https://github.com/Misuta890) — Fixed engine switching bug in Electron version ([#8](https://github.com/Kirakun0328/text-to-vrma/pull/8)).
+- [@Misuta890](https://github.com/Misuta890) - Fixed engine switching bug in Electron version ([#8](https://github.com/Kirakun0328/text-to-vrma/pull/8)).
   Thank you!
-- [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) — Claude API (Anthropic) support (verified on browser and desktop versions, [#9](https://github.com/Kirakun0328/text-to-vrma/pull/9) / [#11](https://github.com/Kirakun0328/text-to-vrma/issues/11)).
+- [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) - Claude API (Anthropic) support (verified on browser and desktop versions, [#9](https://github.com/Kirakun0328/text-to-vrma/pull/9) / [#11](https://github.com/Kirakun0328/text-to-vrma/issues/11)).
   Thank you for your fantastic contribution!
-- [@hsm-hx](https://github.com/hsm-hx) — Support for Claude 5.5 generation and Fable 5.1, server-side fallback on refusal ([#17](https://github.com/Kirakun0328/text-to-vrma/pull/17)).
+- [@hsm-hx](https://github.com/hsm-hx) - Support for Claude 5.5 generation and Fable 5.1, server-side fallback on refusal ([#17](https://github.com/Kirakun0328/text-to-vrma/pull/17)).
   Thank you!
-- [@meryuhi](https://github.com/meryuhi) — Fixed foot floating issue in ARDY engine retargeting (measured and verified ankle height in Unity, [#18](https://github.com/Kirakun0328/text-to-vrma/pull/18)).
+- [@meryuhi](https://github.com/meryuhi) - Fixed foot floating issue in ARDY engine retargeting (measured and verified ankle height in Unity, [#18](https://github.com/Kirakun0328/text-to-vrma/pull/18)).
   Thank you!
+- [@loneicewolf](https://github.com/loneicewolf) — Translated & Proofread the README into English (README_EN). Thank you!
 
 Bug reports, feature suggestions, and PRs are always welcome. Improving macOS / Linux environments relies heavily on community strength.
 
@@ -691,9 +682,9 @@ Bug reports, feature suggestions, and PRs are always welcome. Improving macOS / 
   As a condition of the MIT License, copying and redistributing code requires including the above copyright notice and license text.
 
 - Licenses for external models used by the ARDY local engine:
-  - NVIDIA ARDY — Code: Apache-2.0 / Weights: NVIDIA Open Model Agreement (Commercial use permitted)
-  - Meta Llama 3 — Meta Llama 3 Community License. This feature is **Built with Meta Llama 3**
-  - FuguMT (Japanese-English Translation) — CC BY-SA 4.0
+  - NVIDIA ARDY - Code: Apache-2.0 / Weights: NVIDIA Open Model Agreement (Commercial use permitted)
+  - Meta Llama 3 - Meta Llama 3 Community License. This feature is **Built with Meta Llama 3**
+  - FuguMT (Japanese-English Translation) - CC BY-SA 4.0
   - See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details.
 - The bundled AvatarSample model (© pixiv Inc.) is **excluded from the MIT License**.
   Pixiv Inc.'s [AvatarSample A-Z Terms of Use](https://vroid.pixiv.help/hc/ja/articles/4402394424089-AvatarSample-A-Z)
