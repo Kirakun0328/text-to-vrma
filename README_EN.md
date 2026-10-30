@@ -1,102 +1,107 @@
-# Text-To-VRMA — VRM特化型Text-To-Motionツール
+# Text-To-VRMA — VRM-Specialized Text-To-Motion Tool
 
-[![GitHub Sponsors](https://img.shields.io/badge/♥_Sponsor-支援する-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/Kirakun0328)
+[![GitHub Sponsors](https://img.shields.io/badge/♥_Sponsor-Support-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/Kirakun0328)
 
-![デモ: テキストからモーション生成](video/demo.gif)
+![Demo: Motion Generation from Text](video/demo.gif)
 
-テキストを入力すると AI がモーションを生成し、
-**VRMA (VRM Animation / `.vrma`)** ファイルをブラウザ内で生成して、
-その場で VRM キャラクターを動かす Web アプリです。
-生成した `.vrma` はファイルとして保存でき、VRMA 対応アプリでそのまま利用できます。
+A web application where you enter text, and AI generates motion, creating a **VRMA (VRM Animation / `.vrma`)** file directly within your browser to animate your VRM character on the spot. The generated `.vrma` files can be saved and used directly in any VRMA-compatible application.
 
-例:「その場で歩く」「喜んでジャンプする」「手を振る」「悲しそうにうつむく」
+Examples: "walk in place", "jump with joy", "wave hand", "look down sadly"
 
-## ✨ 主な機能
+## ✨ Key Features
+- 📝 **Text-to-Motion Generation** (Japanese supported) — Powered by two engines: LLM Keyframe / NVIDIA ARDY
+- 🧠 **Jev (TypeSafe AI) Support** — Analyzes emotion, gaze, and movement tempo from input text, automatically supplementing facial expressions and movement styles (v1.1.9+)
+- 🚀 **Latest Model Support** — OpenAI GPT-6 generation (`gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna`), and Claude Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5
+- 💳 **Codex Subscription Support** — In addition to the desktop version, you can utilize your quota directly from the local web version
+- 🎬 Export generated motion as **GIF / Video (1080p)** — Share directly on social media
+- 🎨 **Custom Background Colors** — Set solid background colors for chroma key compositing (e.g., green screen)
+- ⏱ **Specify Motion Length in Seconds** (leave blank for auto-detection, with an "auto-correction" option)
+- ▶ **Playback Seekbar** — Displays current seconds, scrub to any point, and pause
+- 📍 **Waypoint Mode** — Click on the 3D view floor to specify movement paths (ARDY)
+- 🎭 **Physical Expression of Emotion** — Reflects not just facial expressions, but also posture, arms, center of gravity, and movement dynamics
+- 🔍 **AI Motion Review** — AI evaluates necessity after generation and applies corrections only when needed
+- 🎯 **Instruction-Following Check** — Measures movement, jumping, crouching, and hand-raising on the avatar
+- 🎲 **Generate and Compare 3 Candidates** — Generate with different seeds to compare and choose the best one
+- ✨ **Full-Body Smoothness Correction** — Softens abrupt angle changes while preserving grounding areas
+- 🔁 **Loop Playback** — Connects the beginning and end for seamless playback
+- 😊 **Automatic Facial Expression Generation** + 4-Language UI (Japanese / English / Chinese / Korean)
+- 🔌 **OpenAI-Compatible Provider Support** — OpenRouter, DeepSeek, Ollama, and more can also be used
+- 🟣 **Claude API Support** — Generate motions using Anthropic's Claude (claude-opus-5-5, etc.)
+- 🧭 **Connection Guidance** — If connection fails (e.g., when the ARDY engine is not running), it displays the cause along with buttons like "Start Engine"
 
-- 📝 **テキストからモーション生成** (日本語OK) — LLMキーフレーム / NVIDIA ARDY の2エンジン
-- 🧠 **Jev (TypeSafe AI) 対応** — 入力文から感情・視線・動きのテンポを解析し、表情や動き方を自動で補います (v1.1.9〜)
-- 🚀 **最新モデル対応** — OpenAI は GPT-6 世代 (`gpt-6-astra` / `gpt-6.1-sol` / `gpt-6-luna`)、Claude は Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5
-- 💳 **Codexサブスクリプション対応** — デスクトップ版に加え、ローカルWeb版からも利用枠で呼べます
-- 🎬 生成したモーションを **GIF / 動画 (1080p)** で書き出し — SNSにそのまま共有できます
-- 🎨 **背景色の自由指定** — グリーンバック等のクロマキー合成用の単色背景にできます
-- ⏱ **モーションの長さを秒数で指定** (空欄で自動判定・「自動補正」オプションあり)
-- ▶ **再生シークバー** — 現在秒数の表示、任意の地点へスクラブ、一時停止
-- 📍 **経由地モード** — 3Dビューの床をクリックして移動経路を指定 (ARDY)
-- 🎭 **感情を身体で表現** — 表情だけでなく姿勢・腕・重心・動きの緩急にも反映
-- 🔍 **AIで動きを見直す** — 生成後にAIが必要性を判定し、必要なときだけ補正
-- 🎯 **指示追従チェック** — 移動・ジャンプ・しゃがみ・手上げをアバター上で計測
-- 🎲 **3候補の生成と比較** — 別seedで生成して見比べ、良いものを採用
-- ✨ **全身のなめらか補正** — 急な角度変化をやわらげ、接地付近は保護
-- 🔁 **ループ再生** — 頭と末尾をつないで途切れなく再生
-- 😊 **表情の自動生成** + 4言語UI (日本語 / English / 中文 / 한국어)
-- 🔌 **OpenAI互換プロバイダ対応** — OpenRouter / DeepSeek / Ollama 等も使えます
-- 🟣 **Claude API対応** — Anthropic の Claude (claude-opus-5-5 等) でもモーション生成できます
-- 🧭 **接続の案内** — ARDYエンジンが起動していないなど接続できないときは、原因と「エンジンを起動」等のボタンを表示します
 
-生成エンジンは2種類から選べます:
 
-| エンジン | 特徴 | 必要なもの |
+You can choose from two generation engines:
+
+| Engine | Features | Requirements |
 | --- | --- | --- |
-| **LLMキーフレーム** (OpenAI API / Claude API / Codex / 互換API) | 正確なポーズ・手指・表情の指定が得意。セットアップ不要でどのPCでも動く。OpenAI互換API (OpenRouter/DeepSeek/Ollama等) や Anthropic の Claude API も指定可 | APIキー または Codexプラン |
-| **ARDYローカルエンジン** (v1.1〜) | NVIDIAのモーション生成AI [ARDY](https://github.com/nv-tlabs/ardy) をローカル実行。歩行・ダンス・ジャンプ等の全身運動が**モーションキャプチャ品質**。生成無制限・オフライン動作 | 追加セットアップ (下記) |
+| **LLM Keyframe** (OpenAI API / Claude API / Codex / Compatible APIs) | Excels at precise pose, finger, and facial expression specification. Works on any PC with no setup required. Supports OpenAI-compatible APIs (OpenRouter, DeepSeek, Ollama, etc.) as well as Anthropic's Claude API. | API Key or Codex Plan |
+| **ARDY Local Engine** (v1.1+) | Locally runs NVIDIA's motion generation AI [ARDY](https://github.com/nv-tlabs/ardy). Full-body movements like walking, dancing, and jumping are of **motion capture quality**. Unlimited generation, works offline. | Additional setup (see below) |
 
-ARDYモードではARDYが身体のモーションを生成します。Codex併用では、最初の動作区間の身体・表情を設計してから生成・再生を始め、その間に後続区間を設計します。確定した区間の時刻や内容を保ち、末尾へ追加します。「ARDYのみ」は入力文から直接生成します。Jevの解析は並行して補助に使います。通常の新規生成は独立し、生成中の再入力や明示的な追加修正では現在の物理履歴からつなぎます。操作と制約は [ARDY連続生成](docs/ardy-realtime.md) を参照してください。
+In ARDY mode, ARDY generates the physical motion. When combined with Codex, it designs the body and facial expressions for the initial movement segment before starting generation and playback, designing subsequent segments concurrently. It preserves the timestamps and contents of finalized segments and appends them to the end. "ARDY Only" generates directly from the input text. Jev's analysis is used concurrently as an auxiliary tool. Standard new generations are independent, and during generation, re-inputs or explicit additive corrections seamlessly connect from the current physical history. For operations and constraints, please refer to [ARDY Continuous Generation](docs/ardy-realtime.md).
 
-| 動作を考えるAI | 必要なもの | 備考 |
+| Motion-Planning AI | Requirements | Notes |
 | --- | --- | --- |
-| **ARDY単体** (初期表示) | なし | ARDY内蔵の翻訳で生成します |
-| **Codexサブスクリプション** | ChatGPT/Codexプラン | 利用枠の使用率・残り・リセット時刻を設定欄に表示 |
-| **OpenAI API** | APIキー | GPT-6 Astra / GPT-6.1 Sol (既定) / GPT-6 Luna |
-| **Claude API** | APIキー | Fable 5.1 / Opus 5.5 (既定) / Sonnet 5.5 / Haiku 5.5 |
+| **ARDY Only** (Default) | None | Generated using ARDY's built-in translation. |
+| **Codex Subscription** | ChatGPT / Codex Plan | Displays usage rate, remaining quota, and reset time in the settings panel. |
+| **OpenAI API** | API Key | GPT-6 Astra / GPT-6.1 Sol (Default) / GPT-6 Luna |
+| **Claude API** | API Key | Fable 5.1 / Opus 5.5 (Default) / Sonnet 5.5 / Haiku 5.5 |
 
-- Codexを選んだ連続生成で認証や計画に失敗した場合は、理由を表示します。ARDY単独や有料APIへ自動では切り替えません。直接生成は「ARDYのみ」で選べます
-- 生成後のレビュー・品質設定は [モーション品質の仕組み](#モーション品質の仕組み) を参照してください
+- If authentication or planning fails during continuous generation using Codex, the reason will be displayed. It will not automatically switch to ARDY Only or paid APIs. Direct generation can be selected via "ARDY Only".
+- For post-generation review and quality settings, please refer to [How Motion Quality Works](#how-motion-quality-works).
 
-モーションと同時に**表情** (笑顔・悲しみ・驚き・まばたき等) も生成されます。
-まばたきは間隔にばらつきを持たせ、驚いた表情の間は控えます。
-`.vrma` 保存時に「表情を含める / 含めない (ボーンモーションのみ)」を選択できます。
+Simultaneously with the motion, **facial expressions** (smiles, sadness, surprise, blinking, etc.) are also generated. 
+Blink intervals have natural variations and are suppressed during surprised expressions.
+When saving the `.vrma` file, you can choose whether to "Include / Exclude facial expressions (bone motion only)".
 
-UIは **日本語 / English / 中文 / 한국어** の4言語に対応 (画面右上のセレクタで即時切替。
-初回はブラウザの言語設定から自動判定) 。
+The UI is available in **Japanese / English / Chinese / Korean** — switch instantly via the selector in the top-right corner.
+(Automatically determined from browser language settings on first launch).
 *The UI is available in Japanese, English, Chinese and Korean — switch instantly from the selector at the top.*
 
-## セットアップ & 起動
 
-> 🎁 **ビルド不要で使いたい方 (Windows):**
-> [Releases から最新版のzipをダウンロード](https://github.com/Kirakun0328/text-to-vrma/releases/latest)
-> — 解凍してexeをダブルクリックするだけ (インストール不要、ARDYエンジンのセットアップ一式も同梱)。
-> 以下のセットアップは全て不要です。
 
-ソースから動かす場合は2通りあります。迷ったら **A. ブラウザ版** が最短です。
 
-| | 起動コマンド | 向いている人 |
+
+## Setup & Startup
+
+> 🎁 **For Windows users who want to use it without building:**
+> [Download the latest zip from Releases](https://github.com/Kirakun0328/text-to-vrma/releases/latest)
+> — Just extract it and double-click the exe (no installation required; a complete ARDY engine setup is also bundled).
+> All of the setups below are unnecessary.
+
+If running from source, there are two ways. If you are unsure, **A. Browser Version** is the fastest.
+
+| | Startup Command | Best For |
 | --- | --- | --- |
-| **A. ブラウザ版** | `npm run dev` | まず試したい人 (全OS・最短3コマンド) |
-| **B. デスクトップ版 (Electron)** | `npm run build` → `npm run app:dev` | Codexサブスク認証や、ARDYエンジンのアプリ内セットアップ・自動起動を使いたい人 |
+| **A. Browser Version** | `npm run dev` | Those who want to try it first (All OSs, shortest 3 commands) |
+| **B. Desktop Version (Electron)** | `npm run build` → `npm run app:dev` | Those who want to use Codex subscription authentication, or in-app setup and auto-startup of the ARDY engine |
 
-**事前に必要なもの:**
+**Prerequisites:**
 
-| 何をするか | 必要なもの |
+| What to do | Requirements |
 | --- | --- |
-| 共通 | Node.js 20+、git |
-| モーション生成 (LLMキーフレーム) | OpenAI APIキー ([platform.openai.com](https://platform.openai.com/) で取得) または Claude APIキー ([console.anthropic.com](https://console.anthropic.com/) で取得)。ローカルWeb版・デスクトップ版は代わりにCodexとChatGPT/Codexプランでも可 |
-| ARDYローカルエンジン (任意) | [下記セクション](#ardyローカルエンジン-オプション)参照 (Python 3.10+ / git、約20GBダウンロード)。**こちらはAPIキーなしでも動きます** |
+| Common | Node.js 20+, git |
+| Motion Generation (LLM Keyframe) | OpenAI API Key (obtained from [platform.openai.com](https://platform.openai.com/)) or Claude API Key (obtained from [console.anthropic.com](https://console.anthropic.com/)). Alternatively, Codex and a ChatGPT/Codex plan can be used for the local web and desktop versions. |
+| ARDY Local Engine (Optional) | See the [ARDY Local Engine section](#ardy-local-engine-optional) below (Python 3.10+ / git, approx. 20GB download). **This can run without an API key.** |
 
-VRMモデルは [VRoid 公式サンプルモデル (AvatarSample)](https://hub.vroid.com/characters/2843975675147313744/models/5644550979324015604)
-の VRM1.0 版・VRM0.0 版を同梱しており、起動時に VRM1.0 版が読み込まれます。手持ちの `.vrm` への
-差し替えも可能で、**0.x / 1.0 の両形式に対応**しています (three-vrm が自動判別し、向きも正規化)。
+The VRM model includes the VRM 1.0 and VRM 0.0 versions of the [VRoid Official Sample Model (AvatarSample)](https://hub.vroid.com/characters/2843975675147313744/models/5644550979324015604), and the VRM 1.0 version is loaded on startup. You can also swap it out for your own `.vrm` files, as **both 0.x and 1.0 formats are supported** (three-vrm automatically detects them and normalizes the orientation).
 
-### A. ブラウザ版
+
+
+
+
+
+### A. Browser Version
 
 ```sh
 git clone https://github.com/Kirakun0328/text-to-vrma.git
 cd text-to-vrma
 npm install
 npm run dev
-# → http://localhost:5173 をブラウザで開く
+# → Open http://localhost:5173 in your browser
 ```
 
-### B. デスクトップ版 (Electron)
+### B. Desktop Version (Electron)
 
 ```sh
 git clone https://github.com/Kirakun0328/text-to-vrma.git
