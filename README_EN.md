@@ -111,121 +111,124 @@ npm run build
 npm run app:dev
 ```
 
-- Electron 版は Vite のビルド結果 `dist/index.html` を読み込みます。初回とソースコード変更後は
-  **必ず `npm run build` を実行してから** `npm run app:dev` で起動してください
-  (ビルド済みのまま再起動するだけなら `npm run app:dev` のみでOK)
-- Codexサブスクリプション認証はデスクトップ版と `npm run dev` / `npm run preview` のローカルWeb版で利用できます。
-  使う場合は事前に Codex CLI のインストール・認証・PATH設定を済ませてください
-  (Codex CLI はアプリに同梱していません)。
-  未導入または古いバージョンの場合は、アプリ内に導入・更新の手順を表示します
-  (動作確認済みは 0.153.3)
-  ローカルWeb版は同一オリジンのNodeサーバーから `codex app-server` に接続します。
-  静的ファイルのみの配信では利用できません。モデル一覧はログインしたアカウントから取得し、
-  GPT-6 Astraが一覧にない場合はサブスク側でまだ選択できません。
-  ソース版の `npm install` は動作確認済みのCodex CLI 0.153.3も導入します。
-  プロジェクト内のCLIを優先し、存在しない場合のみPATHのCLIを使います。
-  古いCLIでは利用可能なAstraが一覧に出ない場合があります（0.144.1と0.153.3で確認）。
+
+
+- The Electron version loads the Vite build output (`dist/index.html`). For the initial run and after source code changes, **make sure to run `npm run build`** before starting with `npm run app:dev` 
+  (if you are just restarting with an already built version, `npm run app:dev` alone is fine).
+- Codex subscription authentication is available in the desktop version and the local web version (`npm run dev` / `npm run preview`).
+
+  To use it, please make sure to install, authenticate, and configure the PATH for the Codex CLI beforehand 
+  (the Codex CLI is not bundled with the app).
+  If it is missing or outdated, the app will display instructions for installation and updates 
+  (verified with v0.153.3).
+  The local web version connects to `codex app-server` via the same-origin Node server.
+  It cannot be used when serving static files only. The model list is fetched from the logged-in account, and if GPT-6 Astra is not listed, it cannot be selected on the subscription side yet.
+  Running `npm install` on the source version also installs the verified Codex CLI 0.153.3.
+  It prioritizes the CLI within the project, and only falls back to the PATH CLI if it does not exist.
+  Older CLIs may not list available Astra models (verified in 0.144.1 and 0.153.3).
 
 > [!NOTE]
-> 現在の `npm run app:build` (exe作成) は Windows Portable 版専用です。macOS 向けの `.app` や `.dmg` は生成しません。
+> The current `npm run app:build` (exe generation) is exclusively for the Windows Portable version. It does not generate `.app` or `.dmg` files for macOS.
 
-## 使い方
+## Usage
 
-1. 起動するとサンプルモデル (AvatarSample VRM1.0版) が読み込まれます。
-   「VRMファイルを開く」または 3D ビューへのドラッグ&ドロップで手持ちの VRM に差し替え可能
-2. 生成エンジンを選択
-   - **OpenAI APIキー**: キーを入力し、モデルを選択します。キーはブラウザの
-     localStorage にのみ保存され、OpenAI 以外には送信されません。
-     「🔌 OpenAI互換プロバイダを使う」からベースURL・モデル名を指定すれば、
-     OpenRouter / DeepSeek / Ollama 等の互換APIも使えます
-     モデル一覧から **GPT-6 Astra** (`gpt-6-astra`) も選択できます。
-     生成・自己修正・ARDYの動作計画に利用でき、既定モデルは `gpt-6.1-sol` です。
-     [OpenAI公式モデル情報](https://developers.openai.com/api/docs/models/gpt-6-astra)では
-     段階提供中のため、利用するAPIプロジェクトにアクセス権が必要です。
-     ローカルHTTP APIではリクエストの `model` に `gpt-6-astra`、
-     または環境変数 `OPENAI_MODEL=gpt-6-astra` を指定できます。
-   - **Claude API**: Anthropic の Claude APIキー (sk-ant-...) を入力し、モデル
-     (claude-fable-5-1 / claude-opus-5-5 / claude-sonnet-5-5 / claude-haiku-5-5) を選択します。
-     キーはブラウザの localStorage にのみ保存され、Anthropic 以外には送信されません。
-     Claude API対応は [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) さん
-     ([#9](https://github.com/Kirakun0328/text-to-vrma/pull/9)) のコントリビュートによるもので、
-     **コントリビューターがブラウザ版・デスクトップ版で動作確認していますが、作者環境では未確認です**。
-     不具合報告・動作報告を歓迎します
-   - **Codexサブスクリプション（デスクトップ版・ローカルWeb版）**: 「ChatGPTでログイン」を押して
-     既定ブラウザで認証します。既にCodex CLIでログイン済みなら、その認証を再利用します
-   - **ARDYローカルエンジン**: ローカルで動くモーション生成AI (下記セクション参照)
-3. テキストで動きを指示して「▶ モーション生成 & 再生」 (Ctrl+Enter でも可)
-   - 「⏱ 長さ (秒)」で生成するモーションの長さを指定できます (空欄なら自動判定)。
-     「長さを自動補正」ONにすると、動作数に見合った自然な長さへ自動調整します
-   - 「ループ再生」で 自動 / 常にループ / 1回だけ を選択できます
-   - 「🔍 自己修正」(LLMモード) では生成後にもう1パスかけて品質を上げます
-   - **演技設計＋画像レビュー**: Codex（サブスク利用枠）または公式GPT-6 Astra APIで利用できます。
-     演技の段取り・支持脚・重心・視線・手足の到達位置を計画し、読み込んだVRMの実寸を使って生成。
-     正面・側面のコマ送り画像と実測位置をモデルに返し、1回修正します（合計3回の生成）。
-     APIモードは従量課金、CodexモードはChatGPTログインを必須としAPIキーへ自動切替しません。
-     1〜15秒対応。「通常の自己修正」の代わりに実行します。
-     完了後の比較パネルで修正前・修正後を再生し、演技設計・測定値・送信画像を確認できます。
-     数値が大きく悪化した候補は自動採用せず、比較用に残します。測定値は物理品質の保証ではありません。
-     「速度優先」は推論量とキー数を抑え、「品質優先」は詳しく考えます。
-     修正完了前に初稿を先に再生します。比較パネルに初稿までの時間と全体の時間を表示します。
-4. 生成された動きは3Dビューで再生されます
-   - 下部の**再生バー**で現在秒数の確認・任意地点へのスクラブ・一時停止ができます
-   - 右上の**カメラリセット / フルスクリーン**、下部の**背景切替**でプレビューを調整
-5. 「4. 書き出し・共有」から出力
-   - **⬇ .vrma 保存** — VRMA対応アプリ (VRoid Hub / cluster 等) で使えるファイル
-   - **🎞 GIF書き出し / 🎬 動画書き出し** — 1080pで書き出してSNSにそのまま共有
-   - 生成履歴の各項目からも再生・保存・GIF/動画書き出しができます
+1. Upon startup, the sample model (AvatarSample VRM 1.0 version) is loaded.
 
-## モーション品質の仕組み
+   You can swap it out for your own VRM by clicking "Open VRM File" or dragging and dropping onto the 3D view.
+2. Select the generation engine
+   - **OpenAI API Key**: Enter your key and select a model. The key is stored only in the browser's 
+     localStorage and is never sent to anyone other than OpenAI.
+     By specifying a base URL and model name via "🔌 Use OpenAI-compatible provider", 
+     you can also use compatible APIs such as OpenRouter, DeepSeek, or Ollama.
+     You can also select **GPT-6 Astra** (`gpt-6-astra`) from the model list.
+     It can be used for generation, self-correction, and ARDY's motion planning; the default model is `gpt-6.1-sol`.
+     According to the [Official OpenAI Model Information](https://developers.openai.com/api/docs/models/gpt-6-astra), 
+     it is rolling out gradually, so your API project must have access rights.
+     For local HTTP APIs, you can specify `gpt-6-astra` for the request `model` 
+     or set the environment variable `OPENAI_MODEL=gpt-6-astra`.
+   - **Claude API**: Enter your Anthropic Claude API key (`sk-ant-...`) and select a model 
+     (`claude-fable-5-1` / `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-haiku-5-5`).
+     The key is stored only in the browser's localStorage and is never sent to anyone other than Anthropic.
+     Claude API support is contributed by [@AUDOSt0ck1ng](https://github.com/AUDOSt0ck1ng) 
+     ([#9](https://github.com/Kirakun0328/text-to-vrma/pull/9)), and **while contributors have verified it works in both browser and desktop versions, it has not been verified in the author's environment**.
+     Bug reports and operation feedback are welcome.
+   - **Codex Subscription (Desktop & Local Web Version)**: Click "Login with ChatGPT" 
+     to authenticate in your default browser. If you are already logged in via the Codex CLI, that authentication is reused.
+   - **ARDY Local Engine**: Motion generation AI running locally (see section below)
+3. Direct the movement with text and click "▶ Generate & Play Motion" (Ctrl+Enter is also available)
+   - You can specify the motion length using "⏱ Length (sec)" (leave blank for auto-detection).
+   - Turning on "Auto-correct length" automatically adjusts it to a natural length appropriate for the number of actions.
+   - Under "Loop Playback", you can choose Automatic / Always Loop / Play Once.
+   - "🔍 Self-Correction" (LLM mode) runs an additional pass after generation to improve quality.
+   - **Acting Design + Image Review**: Available with Codex (subscription quota) or the official GPT-6 Astra API.
+     Plans acting cues, support leg, center of gravity, gaze, and limb arrival positions, generating using the actual dimensions of the loaded VRM.
+     Sends front and side stop-motion images and measured positions back to the model, correcting once (total of 3 generations).
+     API mode is pay-per-use, Codex mode requires a ChatGPT login and does not automatically switch to an API key.
+     Supports 1 to 15 seconds. Executed in place of "Regular Self-Correction".
+     In the post-completion comparison panel, you can play back before/after correction and review the acting design, measured values, and sent images.
+     Candidates with significantly worsened metrics are not auto-selected, but are kept for comparison. Measured values do not guarantee physical quality.
+     "Speed Priority" limits reasoning volume and key count, while "Quality Priority" thinks more thoroughly.
+     Plays the first draft first before correction completes. Displays the time until the first draft and total time in the comparison panel.
+4. The generated movement is played back in the 3D view
+   - You can check the current seconds, scrub to any point, and pause using the **playback bar** at the bottom.
+   - Adjust the preview using **Reset Camera / Fullscreen** at the top right and **Switch Background** at the bottom.
+5. Export from "4. Export & Share"
+   - **⬇ Save .vrma** — A file usable in VRMA-compatible apps (VRoid Hub, cluster, etc.)
+   - **🎞 Export GIF / 🎬 Export Video** — Export in 1080p and share directly to social media
+   - You can also play, save, and export GIF/video from each item in the generation history.
 
-生成したモーションをそのまま出すのではなく、複数の段階で品質を上げています。
-いずれも**幾何学的な計測に基づく補助であり、品質の保証ではありません**。
 
-### 生成品質
 
-「標準」「速度優先」「品質優先」から選べます (既定は標準)。
-計画時の推論量とレビュー回数が変わります。速度優先は推論量を抑え、
-品質優先は詳しく考えたうえで再評価を最大2回まで行います。
+## How Motion Quality Works
 
-### 終わりの姿勢の保持
+Rather than outputting generated motions as-is, quality is enhanced across multiple stages.
+Please note that all of these are **auxiliary measures based on geometric measurements and do not guarantee quality**.
 
-連続生成では、各区間で動かさない部位を固定します。下ろしていた腕は胴体が傾いても重力方向に垂れたまま保ち、
-「腕を下ろして終わる」区間ではまだ上がっている腕だけを動かします。空中から始まる区間は脚と腰の上下を動かして着地させます。
-詳細は [終端姿勢の保持](docs/end-pose-holding.md) を参照してください。
+### Generation Quality
 
-### AIで動きを見直す
+You can choose from "Standard", "Speed Priority", and "Quality Priority" (Standard is the default).
+This changes the amount of inference and the number of review iterations during planning. Speed priority limits inference, while quality priority thinks through things thoroughly and performs re-evaluations up to 2 times.
 
-生成後、AIが**まず修正が必要かを判定**します。不要なら元の動きをそのまま採用し、
-その理由をプレビューの「修正前後を比較」に表示します。
+### End-Pose Preservation
 
-- **標準・品質優先** — 元のモーションの関節に補正を直接適用し、別の判定で再評価します
-- **速度優先** — ARDYへの指示を見直して再生成します
-- **画像も使う** — アプリが生成モーションを正面・側面から自動撮影し、選んだAIへ送ります
-  (参照画像をユーザーが用意する必要はありません)
+In continuous generation, body parts that should not move in each segment are fixed. Arms that were resting down are kept hanging in the direction of gravity even if the torso tilts, and in segments ending with "lowering arms", only the arms that are still raised are moved. Segments starting in mid-air animate the up-and-down movement of the legs and hips to land.
+For details, please refer to [End-Pose Preservation](docs/end-pose-holding.md).
 
-自動修正は起動時OFFです。生成後に「この動きを修正」から手動で実行できます。
-物理指標が悪化した場合や、指示された動作が消えた場合は自動採用しません。
-ARDYの終了姿勢は保持し、足を滑らせる強制的な直立補間は行いません。
+### AI Motion Review
+
+After generation, the AI **first determines whether correction is necessary**. If not, the original movement is adopted as-is, and the reason is displayed in the preview's "Compare Before/After Correction".
+
+- **Standard & Quality Priority** — Applies corrections directly to the joints of the original motion and re-evaluates them using a separate judgment.
+
+- **Speed Priority** — Reviews instructions sent to ARDY and regenerates.
+
+- **Use Images Too** — The app automatically captures front and side photos of the generated motion and sends them to the selected AI.
+
+  (Users do not need to prepare reference images themselves.)
+
+Auto-correction is OFF by default. You can execute it manually after generation via "Correct this motion".
+If physical metrics worsen or requested actions disappear, it will not be auto-adopted.
+ARDY's end-pose is preserved, and forced upright interpolation that causes foot sliding is avoided.
 
 | | |
 | --- | --- |
-| 対応する長さ | 1〜15秒 (Web版・デスクトップ版の機能) |
-| AIへ渡す情報 | 足滑り・関節の角速度・手足の速度と加速度 |
-| 足滑りの測り方 | 足の高さと上下速度から接地を近似。**物理シミュレーションや全身衝突判定ではありません** |
+| Supported Length | 1 to 15 seconds (Feature available in Web and Desktop versions) |
+| Information Passed to AI | Foot sliding, joint angular velocity, limb velocity, and acceleration |
+| How Foot Sliding is Measured | Approximates ground contact from foot height and vertical velocity. **This is not a physical simulation or full-body collision detection.** |
 
-### 指示追従チェック
+### Instruction-Following Check
 
-移動・両足ジャンプ・腰を落とす・手を顔付近まで上げる、の4種について、
-アバター上の関節位置を最大20Hzで計測して検出します。
+Detects four types of movements—locomotion, two-footed jumping, lowering hips, and raising hands near the face—by measuring joint positions on the avatar at up to 20Hz.
 
-これは**幾何学的な代理指標**です。厳密な歩数・移動方向・動作順・表情・自然さ・
-衝突・物理安定性を保証するものではありません。
+This is a **geometric proxy metric**. It does not guarantee strict step counts, movement directions, action order, facial expressions, naturalness, collisions, or physical stability.
 
-### 3候補の生成と比較
+### Generate and Compare 3 Candidates
 
-比較したい場合、別のseedで3候補を生成して見比べられます (通常は1候補)。
-比較可能なチェックが揃う場合は検出数を優先し、足滑り・沈み込みも確認します。
-追加のAI計画呼び出しはありませんが、ARDYの生成時間は増えます。
+If you want to compare, you can generate 3 candidates using different seeds and compare them side-by-side (normally 1 candidate).
+When comparable checks are available, detection count is prioritized, and foot sliding and sinking are also checked.
+While this does not trigger additional AI planning calls, ARDY's generation time increases.
+
+
 
 ### 全身のなめらか補正
 
