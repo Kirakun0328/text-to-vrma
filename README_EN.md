@@ -229,73 +229,66 @@ When comparable checks are available, detection count is prioritized, and foot s
 While this does not trigger additional AI planning calls, ARDY's generation time increases.
 
 
+### Full-Body Smoothness Correction
 
-### 全身のなめらか補正
+Softens sudden angle changes (ON by default, found in "Detailed Motion Settings").
+In addition to the arms and upper body, this also targets the legs, ankles, hips, and fingers.
 
-急な角度変化をやわらげます (標準ON、「動きの詳細設定」内)。
-腕・上半身に加えて脚・足首・腰・指も対象です。
+Ground contact is estimated from ankle height, and **correction is reduced in lower foot segments to maintain the movement path**.
+This is an estimation based on ankle height, not an IK fix measuring actual avatar sole contact.
+It does not guarantee ground contact judgment on stairs, steps, or special postures, nor does it completely prevent foot sliding.
 
-足首の高さから接地を推定し、**足が低い区間では補正を抑えて移動経路を保ちます**。
-足首高による推定であり、実アバターの足裏接触を測るIK固定ではありません。
-階段・段差や特殊姿勢での接地判定、足滑りの完全防止は保証しません。
+### Loop Playback
 
-### ループ再生
+If there is a finite number of repetitions or a concluding motion, it does not loop automatically, but instead holds the final pose.
+When explicitly looping, the beginning and end are overlapped and connected.
+For loops involving locomotion, position and orientation are accumulated, suppressing the issue of returning to the origin every cycle.
 
-有限回数や終了動作がある場合は自動ループせず、最後のポーズを保持します。
-明示的にループさせる場合は頭と末尾を重ねてつなぎます。
-移動を伴うループでは位置・向きを累積し、周期ごとに原点へ戻る問題を抑えます。
+> This transition handling is **for playback within the viewer only**. The same processing is not baked into exported `.vrma` files.
 
-> この継ぎ目処理は**ビューアでの再生用**です。書き出した `.vrma` に同じ処理は入りません。
+## ARDY Local Engine (Optional)
 
-## ARDYローカルエンジン (オプション)
+A mode that runs NVIDIA Research's text-to-motion model 
+[ARDY](https://research.nvidia.com/labs/sil/projects/ardy/) (SIGGRAPH 2026) 
+locally to generate motion-capture-quality full-body motion.
 
-NVIDIA Research の text-to-motion モデル
-[ARDY](https://research.nvidia.com/labs/sil/projects/ardy/) (SIGGRAPH 2026) を
-ローカルで動かし、モーションキャプチャ品質の全身モーションを生成するモードです。
+**What it can do:**
 
-**できること:**
+- Generates full-body movements like walking, running, dancing, jumping, and combat using AI trained on actual human motion capture data (center-of-gravity shifts, momentum, and foot contact look authentic).
+- **Japanese prompts supported** — Automatically translates into English via local translation (FuguMT). 
+  If an OpenAI API key is saved, GPT handles both English translation and splitting continuous actions, improving accuracy.
+- **📍 Waypoint Mode** — Click on the 3D view floor to place waypoints, generating motion for the character to pass through in that order (right-click to undo one).
+- **Multi-step actions** like "walk, run, jump, and trip" can also be split and verified by GPT, connecting and generating up to 12 actions (when an API key is saved).
+- Motion length can be specified in seconds (0.1s+) or automatically determined from content. Expressions and loop availability are also automatic.
+- Unlimited generations, completely local (runs offline after setup).
 
-- 歩く・走る・踊る・ジャンプ・格闘などの全身運動を、実際の人間のモーション
-  キャプチャデータで学習したAIが生成 (重心移動・勢い・足の接地が本物らしい)
-- **日本語プロンプトOK** — ローカル翻訳 (FuguMT) で自動英訳。
-  OpenAI APIキーが保存済みなら GPT が英訳+連続動作の分割まで行い、精度が上がります
-- **📍 経由地モード** — 3Dビューの床をクリックして経由地を置くと、
-  キャラクターがその順番に通るモーションを生成 (右クリックで1つ取り消し)
-- **「歩いて走ってジャンプして転んで」** のような連続動作も、GPTが動作を分割・
-  検証して最大12動作まで繋げて生成します (APIキー保存時)
-- モーションの長さは秒数で指定 (0.1秒〜) または内容から自動判断。表情・ループ可否も自動
-- 生成回数無制限・完全ローカル (セットアップ後はオフラインで動作)
 
-**動作要件と速度:**
+**System Requirements & Performance:**
 
-| | 最低 | 推奨 |
+| | Minimum | Recommended |
 | --- | --- | --- |
-| OS | Windows 10/11 64bit、macOS、Linux | 同左 |
+| OS | Windows 10/11 64-bit, macOS, Linux | Same as left |
 | RAM | 16GB | 32GB+ |
-| ディスク | 35GB | 同左 |
-| GPU | VRAM 4GB〜 (無くてもCPUで1回数十秒) | NVIDIA GPU 6GB+ (1回数秒) |
+| Disk | 35GB | Same as left |
+| GPU | VRAM 4GB+ (or CPU, taking a few dozen seconds per generation) | NVIDIA GPU 6GB+ (a few seconds per generation) |
 
-> 💡 **ARDY公式のデモはVRAM 20〜24GBを要求しますが、本アプリはモーションモデル本体の
-> GPU使用を実測で約1.2GBまで削減しています** (VRAMの大半を占めるテキスト理解部の
-> 8B LLM をCPU側で動かす構成のため)。生成中もVRAMはほぼ増えません (実測 +約12MiB)。
-> モーションモデル本体・拡散ステップ数は公式そのままなので **生成品質は一切落ちていません**。
-> ※ 数値は nvidia-smi による実測 (プロセス停止/起動時のVRAM差分)。
-> モデル使用は約1.2GBで生成しても増えないため、デスクトップ表示分を足しても
-> **VRAM 4GB のGPUで十分動く見込み**です (動作確認は12GBで実施。4〜6GBは未検証のため推奨6GB以上)。
-> GPUがなくてもCPUで動作します (生成が数倍遅くなります)。
+> 💡 **While the official ARDY demo requires 20–24GB of VRAM, this app reduces the VRAM usage of the motion model itself to approximately 1.2GB in actual measurements** (because the 8B LLM text-understanding component, which accounts for most of the VRAM, runs on the CPU side). VRAM hardly increases during generation either (actual measurement: +approx. 12MiB).
+> Since the motion model itself and the number of diffusion steps remain identical to the official version, **generation quality is not compromised at all**.
+> * Figures are actual measurements via `nvidia-smi` (VRAM difference between process stop/start).
+> Since model usage is around 1.2GB and does not increase during generation, adding desktop display overhead means it is **expected to run sufficiently on a GPU with 4GB of VRAM** (verified on 12GB; 4–6GB is untested, so 6GB+ is recommended).
+> Even without a GPU, it runs on the CPU (though generation will be several times slower).
 
-**品質を支える3層構成** — 役割分担は「GPTが頭、ARDYが体」:
+**3-Layer Architecture Supporting Quality** — Division of roles: "GPT is the brain, ARDY is the body":
 
-| 層 | 役割 |
+| Layer | Role |
 | --- | --- |
-| GPT (任意・APIキー保存時) | 日本語の意図理解、連続動作の分割、ARDYが得意な英語表現への言い換え |
-| Llama-3-8B (ローカル・CPU) | 英文をARDY専用のベクトルに変換 (LLM2Vec) |
-| ARDY (ローカル・GPU) | 実際のモーションキャプチャデータで学習したAIが動きを生成 |
+| GPT (Optional / When API key is saved) | Japanese intent understanding, splitting continuous actions, rephrasing into English expressions that ARDY handles well |
+| Llama-3-8B (Local / CPU) | Converts English text into ARDY-specific vectors (LLM2Vec) |
+| ARDY (Local / GPU) | Generates movement using AI trained on actual motion capture data |
 
-APIキーなしでもローカル翻訳 (FuguMT) で完結しますが、キーがあると
-「走ってからジャンプして、最後にお辞儀」のような複雑な指示の再現度が上がります。
+Everything can be completed via local translation (FuguMT) even without an API key, but having a key improves the reproduction accuracy of complex instructions like "run, then jump, and finally bow".
 
-**セットアップ** (Python 3.10+ と git が必要。約20GBダウンロードします):
+**Setup** (Requires Python 3.10+ and git; downloads approx. 20GB):
 
 Windows:
 
@@ -315,66 +308,56 @@ Linux:
 bash tools/ardy-engine/install_linux.sh
 ```
 
-Linux版は apt / dnf / yum / pacman / zypper に対応し、Python 3.10+・git・C++ビルドツール
-(gcc/g++・cmake) を必要に応じて自動導入します (パッケージ導入には sudo を使います)。
-NVIDIA GPU があれば CUDA 版 PyTorch を自動選択します (`nvidia-smi` で判定)。
-ブラウザ版から使う場合は、セットアップ完了時に表示される `server.py` 起動コマンドで
-エンジンを手動起動してください。
+The Linux version supports `apt`, `dnf`, `yum`, `pacman`, and `zypper`, and automatically installs Python 3.10+, git, and C++ build tools (`gcc`/`g++`, `cmake`) as needed (using `sudo` for package installations).
+If an NVIDIA GPU is present, it automatically selects the CUDA version of PyTorch (determined via `nvidia-smi`).
+When using it from the browser version, please start the engine manually using the `server.py` startup command displayed upon completion of the setup.
 
-macOSでHomebrewが未導入の場合は、セットアップ中に自動でインストールされます。
-macOS対応は [@emadurandal](https://github.com/emadurandal) さん ([#2](https://github.com/Kirakun0328/text-to-vrma/pull/2))、
-Linux対応は [@mouseos](https://github.com/mouseos) さん ([#7](https://github.com/Kirakun0328/text-to-vrma/pull/7)) の
-コントリビュートによるものです。
-**開発者 (作者) が動作確認しているのはWindowsのみで、macOS / Linux は作者環境では未確認です**
-(macOS はコントリビューターが、Linux はコントリビューターが実機で動作確認しています)。
-これらの環境の不具合報告・動作報告・修正PRを歓迎します。
+If Homebrew is not installed on macOS, it will be automatically installed during setup.
+macOS support is contributed by [@emadurandal](https://github.com/emadurandal) ([#2](https://github.com/Kirakun0328/text-to-vrma/pull/2)), and Linux support is contributed by [@mouseos](https://github.com/mouseos) ([#7](https://github.com/Kirakun0328/text-to-vrma/pull/7)).
+**The developer (author) has only verified functionality on Windows; macOS and Linux have not been verified in the author's environment**
+(macOS and Linux have been verified on real hardware by their respective contributors).
+Bug reports, operational feedback, and pull requests for fixes on these environments are welcome.
 
-完了後、エンジンを起動してからアプリの「ARDYローカルエンジン」モードを選択します。
-詳細・手動起動・APIは [tools/ardy-engine/README.md](tools/ardy-engine/README.md) を参照してください。
+After completion, start the engine and select the "ARDY Local Engine" mode in the app.
+For details, manual startup, and APIs, please refer to [tools/ardy-engine/README.md](tools/ardy-engine/README.md).
 
-本機能は Meta Llama 3 をテキストエンコーダとして利用しています。**Built with Meta Llama 3**
+This feature uses Meta Llama 3 as its text encoder. **Built with Meta Llama 3**
 
-## Jev (TypeSafe AI) による意味・感情解析 (オプション)
+## Meaning and Emotion Analysis via Jev (TypeSafe AI) (Optional)
 
-[Jev](https://typesafe.ai/) は TypeSafe AI の「System One モデル」で、文章を生成する
-LLMとは違い、入力文を typed な選択肢・スコアに高速分類するモデルです。
-Text-To-VRMA では **Jevにモーションそのものは作らせません**。役割はあくまで、
+[Jev](https://typesafe.ai/) is TypeSafe AI's "System One Model". Unlike LLMs that generate text, it is a model that rapidly classifies input sentences into typed choices and scores.
+In Text-To-VRMA, **Jev does not create the motion itself**. Its role is strictly to analyze:
 
-- 入力文の感情 (`emotion`) とその強さ (`emotion_intensity`)
-- 各感情の独立スコア (`affect`) と項目ごとの信頼度 (`confidences`)
-- エネルギー量 (`movement_energy`)・動きの規模・テンポ・対人態度・明示された視線
+- The emotion of the input text (`emotion`) and its intensity (`emotion_intensity`)
 
-を解析し、その結果を**補助情報として**生成プロンプト (ARDY / OpenAI / Claude / Codex
-共通) へ渡します。原文を優先し、動作の種類を固定しません。旧分類 `reaction` は解析APIの
-互換用で、身体生成には渡しません。実際のモーションは毎回 ARDY やLLMが生成します。
-独立した感情スコアは先行表情にも使用し、ARDYの顔が未設計なら短い開始表情としてVRMAへ補完します。
-既存の表情トラックや途中の感情変化は保持します。
+- Independent scores for each emotion (`affect`) and item-by-item confidence (`confidences`)
 
-**JevのAPIキーがあれば自動利用します。** 未設定・エラー・タイムアウトではJevなしで
-生成を続行します。総合信頼度が低くても解析全体を捨てず、各項目の信頼度に応じて扱います。
-Codex併用の連続生成では、区間設計とJev解析を並行し、最初の身体・表情区間が確定してからARDYを開始します。
-後続の計画は末尾へ追加し、後着のJev解析は未再生の区間の生成条件へ渡します。既に再生した動きやCodexが設計した表情を上書きしません。
+- Energy volume (`movement_energy`), scale of movement, tempo, interpersonal attitude, and specified gaze
 
-### 有効にする方法
+and pass those results **as auxiliary information** to the generation prompt (common across ARDY, OpenAI, Claude, and Codex). It prioritizes the original text and does not fix the type of action. The legacy classification `reaction` is for analysis API compatibility and is not passed to physical generation. Independent emotion scores are also used for preliminary facial expressions; if ARDY's face is undesigned, it is interpolated into VRMA as a brief opening expression.
+Existing expression tracks and mid-stream emotional shifts are preserved.
 
-- **アプリ / ブラウザ版**: 言語切り替えの左の「設定」で、他のAPIキーと同じ欄にある
-  Jev APIキーを入力し、モデル (`jev-latest` / `jev-preview` / `jev-1.13.0`) を選びます。変更は自動保存されます。
-- **ローカルHTTP API (`npm run api`)**: `.env` に `JEV_API_KEY` を設定します。
-  `JEV_ENABLED=false` でサーバー全体を明示的に無効化できます (`.env.example` 参照)。
+**If you have a Jev API key, it will be used automatically.** If unconfigured, in case of an error, or upon timeout, generation continues without Jev. Even if overall confidence is low, the entire analysis is not discarded; it is handled according to the confidence of each item.
+In continuous generation combined with Codex, segment design and Jev analysis run concurrently, and ARDY starts once the initial body and facial expression segments are finalized.
+Subsequent plans are appended to the end, and later-arriving Jev analyses are passed to the generation conditions of unplayed segments. They do not overwrite already played movements or expressions designed by Codex.
 
-### 日本語は英訳してから解析します
+### How to Enable It
 
-Jevは英語が主な対象で、TypeSafe AIの資料でも他の言語は精度が下がるとされています。そのため日本語の入力は、
-ARDYエンジンに内蔵の翻訳モデル (FuguMT) で英訳してからJevへ送ります。ARDYが起動していない・翻訳が2秒以内に
-終わらない場合は、これまでどおり原文のまま送ります。設定の「Jevへは英訳して送る」でオフにできます
-(ローカルHTTP APIでは環境変数 `JEV_TRANSLATE=0`)。動作を考えるAI (Astra / Claude 等) には日本語のまま渡します。
+- **App / Browser Version**: Enter your Jev API key in the Settings field (located to the left of the language selector, in the same row as other API keys) and select a model (`jev-latest` / `jev-preview` / `jev-1.13.0`). Changes are saved automatically.
+- **Local HTTP API (`npm run api`)**: Set `JEV_API_KEY` in your `.env` file. 
+  You can explicitly disable the server globally by setting `JEV_ENABLED=false` (see `.env.example`).
 
-### APIキーの取り扱い
+### Japanese is Translated into English Before Analysis
 
-OpenAI / Claude のキーと同じ方針です。アプリでは `localStorage` に保存し、Electron IPC
-または同一オリジンのローカル接続サーバーを経由してJev (`https://api.typesafe.ai`) に送ります。ソースコードへの
-ハードコードはなく、ログにも出力しません (解析結果のログには感情・反応・信頼度のみを
-残し、APIキーと入力全文は出しません)。
+Jev primarily targets English, and TypeSafe AI documentation notes that accuracy drops for other languages. Therefore, Japanese inputs are first translated into English using the translation model (FuguMT) built into the ARDY engine before being sent to Jev. If the ARDY engine is not running or the translation does not finish within 2 seconds, the original text is sent as-is, just like before. You can turn this off via "Translate to English before sending to Jev" in the settings 
+(or via environment variable `JEV_TRANSLATE=0` for the local HTTP API). Action-planning AIs (such as Astra or Claude) receive the Japanese text as-is.
+
+### Handling of API Keys
+
+Following the same policy as OpenAI and Claude keys. In the app, keys are saved in `localStorage` and sent to Jev (`https://api.typesafe.ai`) via Electron IPC or a same-origin local connection server. There is no hardcoding in the source code, and they are not output to logs (analysis result logs retain only emotions, reactions, and confidence levels, omitting API keys and full input text).
+
+
+
 
 ### ローカルHTTP APIからの利用
 
