@@ -358,41 +358,39 @@ Following the same policy as OpenAI and Claude keys. In the app, keys are saved 
 
 
 
+### Usage from the Local HTTP API
 
-### ローカルHTTP APIからの利用
-
-`POST /v1/motions` の `use_jev` は任意の真偽値です。省略時はサーバーにキーがあれば
-自動利用し、`false` ならそのリクエストだけ解析を省略します。
+`use_jev` in `POST /v1/motions` is an optional boolean. When omitted, it is used automatically if a key exists on the server, and if `false`, analysis is skipped for that request only.
 
 ```bash
-curl -X POST http://127.0.0.1:8787/v1/motions \
+curl -X POST [http://127.0.0.1:8787/v1/motions](http://127.0.0.1:8787/v1/motions) \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"やったー！ついに完成した！！","engine":"ardy","use_jev":true}'
+  -d '{"prompt":"Yay! It is finally finished!!","engine":"ardy","use_jev":true}'
 ```
 
-解析結果だけが欲しい場合 (モーションは生成しない) は専用エンドポイントを使えます。
+If you only want the analysis results (without generating motion), you can use the dedicated endpoint.
 
 ```bash
-curl -X POST http://127.0.0.1:8787/v1/motion-context \
+curl -X POST [http://127.0.0.1:8787/v1/motion-context](http://127.0.0.1:8787/v1/motion-context) \
   -H "Content-Type: application/json" \
-  -d '{"text":"えっ！？本当に！？"}'
+  -d '{"text":"Eh!? Really!?"}'
 # => {"emotion":"surprise","emotion_intensity":0.8,"reaction":"startled", ...}
 ```
 
-`use_jev` はサーバー側で `JEV_API_KEY` が設定され、明示的に無効化されていない場合のみ実際に
-動作し、リクエスト側からAPIキーを渡したり運用者の設定を上書きしたりすることはできません。
-既存のHost/Origin/トークン検証もこの2つのエンドポイントに対して同様に適用されます。
 
-### 通信について
+`use_jev` will only function when `JEV_API_KEY` is configured on the server side and has not been explicitly disabled; requests cannot pass an API key or override the administrator's configuration. Existing Host/Origin/token verifications apply equally to these two endpoints.
 
-Jevを有効にすると、入力テキスト (最大2000文字に切り詰め) が TypeSafe AI のAPI
-(`https://api.typesafe.ai`) へ送信されます。新規生成は前回の演技状態を送りません。
-明示的な追加修正では、現在の動作・姿勢・表情・再生位置の限定された状態も渡します。
+### Regarding Network Communication
 
-利用経路・遅着・身体への適用確認は生成specの `jevContext` / `jev` / `realtime.jev` に記録します。
-経路と制約は [Jevの生成経路への接続](docs/jev-generation-integration.md) を参照してください。
+When Jev is enabled, the input text (truncated to a maximum of 2,000 characters) is sent to the TypeSafe AI API (`https://api.typesafe.ai`). New generations do not send previous acting states.
+Explicit additive corrections also pass limited states of the current movement, posture, expression, and playback position.
 
-## アーキテクチャ
+Routing, late arrival, and confirmation of application to the physical body are recorded in `jevContext`, `jev`, and `realtime.jev` within the generation spec.
+For routing and constraints, please refer to [Integration of Jev into the Generation Pipeline](docs/jev-generation-integration.md).
+
+## Architecture
+
+
 
 ```text
 [LLMキーフレームモード]
