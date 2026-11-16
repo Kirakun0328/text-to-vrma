@@ -670,7 +670,7 @@ difficult times. But there is so much more I want to create — more open-source
 tools for the VRM / VTuber / creative community.
 
 If this tool helps any of you, in any way, or if you simply want to see more projects like it,
-your support genuinely keeps this work (and its developer) above the surface 💚
+your support genuinely keeps this work (and its developer) going 💚
 
 ### **[❤️ GitHub Sponsors — github.com/sponsors/Kirakun0328](https://github.com/sponsors/Kirakun0328)**
 

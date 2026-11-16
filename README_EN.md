@@ -353,7 +353,7 @@ Following the same policy as OpenAI and Claude keys. In the app, keys are saved 
 `use_jev` in `POST /v1/motions` is an optional boolean. When omitted, it is used automatically if a key exists on the server, and if `false`, analysis is skipped for that request only.
 
 ```bash
-curl -X POST [http://127.0.0.1:8787/v1/motions](http://127.0.0.1:8787/v1/motions) \
+curl -X POST http://127.0.0.1:8787/v1/motions \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Yay! It is finally finished!!","engine":"ardy","use_jev":true}'
 ```
@@ -361,7 +361,7 @@ curl -X POST [http://127.0.0.1:8787/v1/motions](http://127.0.0.1:8787/v1/motions
 If you only want the analysis results (without generating motion), you can use the dedicated endpoint.
 
 ```bash
-curl -X POST [http://127.0.0.1:8787/v1/motion-context](http://127.0.0.1:8787/v1/motion-context) \
+curl -X POST http://127.0.0.1:8787/v1/motion-context \
   -H "Content-Type: application/json" \
   -d '{"text":"Eh!? Really!?"}'
 # => {"emotion":"surprise","emotion_intensity":0.8,"reaction":"startled", ...}
@@ -634,7 +634,7 @@ difficult times. But there is so much more I want to create - more open-source
 tools for the VRM / VTuber / creative community.
 
 If this tool helps any of you, in any way, or if you simply want to see more projects like it,
-your support genuinely keeps this work (and its developer) above the surface 💚
+your support genuinely keeps this work (and its developer) going 💚
 
 ### **[❤️ GitHub Sponsors - github.com/sponsors/Kirakun0328](https://github.com/sponsors/Kirakun0328)**
 
