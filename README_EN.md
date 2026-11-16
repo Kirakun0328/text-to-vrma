@@ -1,10 +1,10 @@
 # Text-To-VRMA - VRM-Specialized Text-To-Motion Tool
 
+[![日本語](https://img.shields.io/badge/lang-日本語-lightgrey)](README.md) [![English](https://img.shields.io/badge/lang-English-blue)](README_EN.md) [![简体中文](https://img.shields.io/badge/lang-简体中文-lightgrey)](README_ZH-CN.md) [![한국어](https://img.shields.io/badge/lang-한국어-lightgrey)](README_KO.md)
+
 [![GitHub Sponsors](https://img.shields.io/badge/♥_Sponsor-Support-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/Kirakun0328)
 
 ![Demo: Motion Generation from Text](video/demo.gif)
-
-[![日本語](https://img.shields.io/badge/lang-日本語-lightgrey)](README.md) [![English](https://img.shields.io/badge/lang-English-blue)](README_EN.md) [![简体中文](https://img.shields.io/badge/lang-简体中文-lightgrey)](README_ZH-CN.md) [![한국어](https://img.shields.io/badge/lang-한국어-lightgrey)](README_KO.md)
 
 A web application where you enter text, and the AI generates a motion, creating a **VRMA (VRM Animation / `.vrma`)** file directly within your browser to animate your VRM character on the spot. The generated `.vrma` files can be saved and used directly in any VRMA-compatible application.
 

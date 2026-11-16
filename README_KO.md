@@ -1,10 +1,10 @@
 # Text-To-VRMA - VRM 특화 Text-To-Motion 도구
 
+[![日本語](https://img.shields.io/badge/lang-日本語-lightgrey)](README.md) [![English](https://img.shields.io/badge/lang-English-lightgrey)](README_EN.md) [![简体中文](https://img.shields.io/badge/lang-简体中文-lightgrey)](README_ZH-CN.md) [![한국어](https://img.shields.io/badge/lang-한국어-blue)](README_KO.md)
+
 [![GitHub Sponsors](https://img.shields.io/badge/♥_Sponsor-후원하기-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/Kirakun0328)
 
 ![데모: 텍스트로 모션 생성](video/demo.gif)
-
-[![日本語](https://img.shields.io/badge/lang-日本語-lightgrey)](README.md) [![English](https://img.shields.io/badge/lang-English-lightgrey)](README_EN.md) [![简体中文](https://img.shields.io/badge/lang-简体中文-lightgrey)](README_ZH-CN.md) [![한국어](https://img.shields.io/badge/lang-한국어-blue)](README_KO.md)
 
 > 이 번역은 AI로 생성되었습니다. 수정 제안을 환영합니다!
 

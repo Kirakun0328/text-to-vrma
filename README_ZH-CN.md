@@ -1,10 +1,10 @@
 # Text-To-VRMA - 专为 VRM 打造的 Text-To-Motion 工具
 
+[![日本語](https://img.shields.io/badge/lang-日本語-lightgrey)](README.md) [![English](https://img.shields.io/badge/lang-English-lightgrey)](README_EN.md) [![简体中文](https://img.shields.io/badge/lang-简体中文-blue)](README_ZH-CN.md) [![한국어](https://img.shields.io/badge/lang-한국어-lightgrey)](README_KO.md)
+
 [![GitHub Sponsors](https://img.shields.io/badge/♥_Sponsor-赞助-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/Kirakun0328)
 
 ![演示：根据文本生成动作](video/demo.gif)
-
-[![日本語](https://img.shields.io/badge/lang-日本語-lightgrey)](README.md) [![English](https://img.shields.io/badge/lang-English-lightgrey)](README_EN.md) [![简体中文](https://img.shields.io/badge/lang-简体中文-blue)](README_ZH-CN.md) [![한국어](https://img.shields.io/badge/lang-한국어-lightgrey)](README_KO.md)
 
 > 本译文由 AI 生成，欢迎指正！
 
