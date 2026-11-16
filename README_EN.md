@@ -4,6 +4,8 @@
 
 ![Demo: Motion Generation from Text](video/demo.gif)
 
+[![日本語](https://img.shields.io/badge/lang-日本語-lightgrey)](README.md) [![English](https://img.shields.io/badge/lang-English-blue)](README_EN.md) [![简体中文](https://img.shields.io/badge/lang-简体中文-lightgrey)](README_ZH-CN.md) [![한국어](https://img.shields.io/badge/lang-한국어-lightgrey)](README_KO.md)
+
 A web application where you enter text, and the AI generates a motion, creating a **VRMA (VRM Animation / `.vrma`)** file directly within your browser to animate your VRM character on the spot. The generated `.vrma` files can be saved and used directly in any VRMA-compatible application.
 
 Examples: "walk in place", "jump with joy", "wave hand", "look down sadly"
@@ -11,7 +13,7 @@ Examples: "walk in place", "jump with joy", "wave hand", "look down sadly"
 ## ✨ Key Features
 - 📝 **Text-to-Motion Generation** (Japanese supported) - Powered by two engines: LLM Keyframe / NVIDIA ARDY
 - 🧠 **Jev (TypeSafe AI) Support** - Analyzes emotion, gaze, and movement tempo from input text, automatically supplementing facial expressions and movement styles (v1.1.9+)
-- 🚀 **Latest Model Support** - OpenAI GPT-6 generation (`gpt-6-astra` / `gpt-6-sol` / `gpt-6-luna`), and Claude Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5
+- 🚀 **Latest Model Support** - OpenAI GPT-6 generation (`gpt-6-astra` / `gpt-6.1-sol` / `gpt-6-luna`), and Claude Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5
 - 💳 **Codex Subscription Support** - In addition to the desktop version, you can utilize your quota directly from the local web version
 - 🎬 Export generated motion as **GIF / Video (1080p)** - Share directly on social media
 - 🎨 **Custom Background Colors** - Set solid background colors for chroma key compositing (e.g., green screen)

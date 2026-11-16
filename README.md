@@ -3,7 +3,7 @@
 
 ![デモ: テキストからモーション生成](video/demo.gif)
 
-[English version here](README_EN.md)
+[![日本語](https://img.shields.io/badge/lang-日本語-blue)](README.md) [![English](https://img.shields.io/badge/lang-English-lightgrey)](README_EN.md) [![简体中文](https://img.shields.io/badge/lang-简体中文-lightgrey)](README_ZH-CN.md) [![한국어](https://img.shields.io/badge/lang-한국어-lightgrey)](README_KO.md)
 
 テキストを入力すると AI がモーションを生成し、
 **VRMA (VRM Animation / `.vrma`)** ファイルをブラウザ内で生成して、
