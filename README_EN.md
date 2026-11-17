@@ -4,8 +4,6 @@
 
 https://github.com/user-attachments/assets/f88743c3-6589-4427-94df-ab113b82ff4a
 
-![Demo: Motion Generation from Text](video/demo.gif)
-
 A web application where you enter text, and the AI generates a motion, creating a **VRMA (VRM Animation / `.vrma`)** file directly within your browser to animate your VRM character on the spot. The generated `.vrma` files can be saved and used directly in any VRMA-compatible application.
 
 Examples: "walk in place", "jump with joy", "wave hand", "look down sadly"

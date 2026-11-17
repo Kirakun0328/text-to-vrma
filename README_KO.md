@@ -4,8 +4,6 @@
 
 https://github.com/user-attachments/assets/f88743c3-6589-4427-94df-ab113b82ff4a
 
-![데모: 텍스트로 모션 생성](video/demo.gif)
-
 > 이 번역은 AI로 생성되었습니다. 수정 제안을 환영합니다!
 
 텍스트를 입력하면 AI가 모션을 생성하고, **VRMA (VRM Animation / `.vrma`)** 파일을 브라우저 안에서 바로 만들어 그 자리에서 VRM 캐릭터를 움직이는 웹 애플리케이션입니다. 생성한 `.vrma` 파일은 저장해 두었다가 VRMA를 지원하는 앱에서 그대로 사용할 수 있습니다.

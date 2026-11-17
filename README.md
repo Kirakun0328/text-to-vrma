@@ -4,8 +4,6 @@
 
 https://github.com/user-attachments/assets/f88743c3-6589-4427-94df-ab113b82ff4a
 
-![デモ: テキストからモーション生成](video/demo.gif)
-
 テキストを入力すると AI がモーションを生成し、
 **VRMA (VRM Animation / `.vrma`)** ファイルをブラウザ内で生成して、
 その場で VRM キャラクターを動かす Web アプリです。

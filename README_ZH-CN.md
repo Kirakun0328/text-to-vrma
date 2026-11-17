@@ -4,8 +4,6 @@
 
 https://github.com/user-attachments/assets/f88743c3-6589-4427-94df-ab113b82ff4a
 
-![演示：根据文本生成动作](video/demo.gif)
-
 > 本译文由 AI 生成，欢迎指正！
 
 这是一款 Web 应用：输入文本后，AI 会生成动作，并直接在浏览器内生成 **VRMA (VRM Animation / `.vrma`)** 文件，当场驱动你的 VRM 角色。生成的 `.vrma` 可以保存为文件，并直接在支持 VRMA 的应用中使用。
